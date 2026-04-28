@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="DeployFront/DeployFront.csproj" Id="ed1bea83-7c23-4a5d-98b7-e3c58c7298e8" />
   <Project Path="DeployFunc/DeployFunc.csproj" />
 </Solution>

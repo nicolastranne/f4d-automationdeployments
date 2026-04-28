@@ -1,0 +1,48 @@
+@page
+@model DeployFront.Pages.ServiceMap.IndexModel
+@{
+    ViewData["Title"] = "Service Map";
+}
+
+<h2>Service Map</h2>
+<form method="get" class="mb-3">
+    <div class="input-group">
+        <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by hostname, app name, or environment..." />
+        <button type="submit" class="btn btn-outline-secondary">Search</button>
+    </div>
+</form>
+<a asp-page="Create" class="btn btn-primary mb-2">Add New</a>
+<table class="table table-bordered">
+    <thead>
+        <tr>
+            <th>Hostname</th>
+            <th>VM Name</th>
+            <th>IP Address</th>
+            <th>Port</th>
+            <th>App Name</th>
+            <th>App Version</th>
+            <th>Environment</th>
+            <th>Service Type</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    @foreach (var row in Model.ServiceMapsWithVm)
+    {
+        <tr>
+            <td>@row.ServiceMap.hostname</td>
+            <td>@row.VMName</td>
+            <td>@row.ServiceMap.ipaddr</td>
+            <td>@row.ServiceMap.port</td>
+            <td>@row.ServiceMap.appname</td>
+            <td>@row.ServiceMap.appversion</td>
+            <td>@row.ServiceMap.environment</td>
+            <td>@row.ServiceMap.servicetype</td>
+            <td>
+                <a asp-page="Edit" asp-route-id="@row.ServiceMap.id" class="btn btn-sm btn-warning">Edit</a>
+                <a asp-page="Delete" asp-route-id="@row.ServiceMap.id" class="btn btn-sm btn-danger">Delete</a>
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>

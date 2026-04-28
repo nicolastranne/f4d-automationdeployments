@@ -1,0 +1,39 @@
+@page
+@model DeployFront.Pages.ServiceMap.CreateModel
+@{
+    ViewData["Title"] = "Create Service Map";
+}
+
+<h2>Create Service Map</h2>
+<form method="post">
+    <div class="mb-3">
+        <label asp-for="ServiceMap.hostname" class="form-label"></label>
+        <input asp-for="ServiceMap.hostname" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="ServiceMap.ipaddr" class="form-label"></label>
+        <input asp-for="ServiceMap.ipaddr" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="ServiceMap.port" class="form-label"></label>
+        <input asp-for="ServiceMap.port" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="ServiceMap.appname" class="form-label"></label>
+        <input asp-for="ServiceMap.appname" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="ServiceMap.appversion" class="form-label"></label>
+        <input asp-for="ServiceMap.appversion" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="ServiceMap.environment" class="form-label"></label>
+        <input asp-for="ServiceMap.environment" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label asp-for="ServiceMap.servicetype" class="form-label"></label>
+        <input asp-for="ServiceMap.servicetype" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Create</button>
+    <a asp-page="Index" class="btn btn-secondary">Cancel</a>
+</form>
