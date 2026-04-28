@@ -265,3 +265,11 @@ __pycache__/
 
 # Copilot snapshots
 copilot-snapshots/
+
+# Frontend and publish outputs
+node_modules/
+dist/
+coverage/
+.env
+wwwroot/dist/
+wwwroot/plugins/
