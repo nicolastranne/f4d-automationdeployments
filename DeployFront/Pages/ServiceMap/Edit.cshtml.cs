@@ -23,8 +23,17 @@ namespace DeployFront.Pages.ServiceMap
 
         public async Task<IActionResult> OnPostAsync()
         {
+            // Only update customer and notes fields
             using var client = new HttpClient();
-            var response = await client.PutAsJsonAsync($"http://localhost:5000/api/servicemap/{ServiceMap.id}", ServiceMap);
+            var getResponse = await client.GetFromJsonAsync<ServiceMap>($"http://localhost:5000/api/servicemap/{ServiceMap.id}");
+            if (getResponse == null)
+            {
+                ModelState.AddModelError(string.Empty, "Record not found.");
+                return Page();
+            }
+            getResponse.customer = ServiceMap.customer;
+            getResponse.notes = ServiceMap.notes;
+            var response = await client.PutAsJsonAsync($"http://localhost:5000/api/servicemap/{ServiceMap.id}", getResponse);
             if (response.IsSuccessStatusCode)
                 return RedirectToPage("Index");
             ModelState.AddModelError(string.Empty, "Failed to update record.");

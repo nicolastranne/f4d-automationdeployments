@@ -273,3 +273,8 @@ coverage/
 .env
 wwwroot/dist/
 wwwroot/plugins/
+
+#binaries
+obj/
+.vs/
+bin
