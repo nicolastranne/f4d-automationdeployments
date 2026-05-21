@@ -27,6 +27,8 @@ namespace DeployFunc
         public string? appversion { get; set; }
         [MaxLength(100)]
         public string? customer { get; set; }
+        [MaxLength(100)]
+        public string? site { get; set; }
         [MaxLength(50)]
         public string? environment { get; set; }
         [MaxLength(50)]

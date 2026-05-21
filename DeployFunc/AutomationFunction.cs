@@ -9,6 +9,10 @@ using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Azure.Management.Automation;
+using Microsoft.Azure.Management.Automation.Models;
+using Microsoft.Rest.Azure.Authentication;
+using System.Collections.Generic;
 
 namespace DeployFunc
 {
@@ -245,6 +249,62 @@ namespace DeployFunc
             }
             await _db.SaveChangesAsync();
             return new OkObjectResult($"Updated appversion for {updated} iris services.");
+        }
+
+        // HTTP trigger to start an Azure Automation runbook
+        [Function("TriggerRunbook")]
+        public async Task<IActionResult> TriggerRunbookAsync(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "trigger-runbook")] HttpRequest req)
+        {
+            // Parse parameters from body (JSON)
+            var body = await new StreamReader(req.Body).ReadToEndAsync();
+            var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
+
+            string destinationAddressPrefix = data.GetProperty("DestinationAddressPrefix").GetString();
+            string version = data.GetProperty("Version").GetString();
+            string serviceName = data.GetProperty("ServiceName").GetString();
+            string sqlServer = data.GetProperty("SqlServer").GetString();
+            string database = data.GetProperty("Database").GetString();
+            bool forceDownload = data.TryGetProperty("ForceDownload", out var fd) ? fd.GetBoolean() : true;
+
+            // These should be in your config/environment
+            string tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+            string clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
+            string clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET");
+            string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
+            string resourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
+            string automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
+            string runbookName = Environment.GetEnvironmentVariable("AUTOMATION_RUNBOOK_NAME");
+
+            // Authenticate
+            var serviceCreds = await ApplicationTokenProvider.LoginSilentAsync(tenantId, clientId, clientSecret);
+            var automationClient = new AutomationClient(serviceCreds) { SubscriptionId = subscriptionId };
+
+            // Prepare parameters
+            var parameters = new Dictionary<string, string>
+            {
+                { "DestinationAddressPrefix", destinationAddressPrefix },
+                { "Version", version },
+                { "ServiceName", serviceName },
+                { "SqlServer", sqlServer },
+                { "Database", database },
+                { "ForceDownload", forceDownload.ToString() }
+            };
+
+            // Start runbook
+            var job = await automationClient.Job.CreateAsync(
+                resourceGroup,
+                automationAccount,
+                new JobCreateParameters
+                {
+                    Properties = new JobCreateProperties
+                    {
+                        Runbook = new RunbookAssociationProperty { Name = runbookName },
+                        Parameters = parameters
+                    }
+                });
+
+            return new OkObjectResult(new { jobId = job.JobId, status = job.Status });
         }
     }
 }

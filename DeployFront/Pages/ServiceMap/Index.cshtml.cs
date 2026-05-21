@@ -34,6 +34,9 @@ namespace DeployFront.Pages.ServiceMap
         public async Task OnGetAsync()
         {
             var allMaps = await _db.ServiceMaps.ToListAsync();
+            var vmMappings = await _db.VmIpMappings
+                .Where(x => x.active)
+                .ToDictionaryAsync(x => x.ipAddress, x => x.vmName);
             // Get latest appversion for each servicetype from ServiceVersion table
             var allVersions = await _db.ServiceVersions
                 .Where(v => v.active && v.appversion != null && v.servicetype != null)
@@ -53,7 +56,7 @@ namespace DeployFront.Pages.ServiceMap
 
             ServiceMapsWithVm = allMaps
                 .Select(s => {
-                    var vmName = GetVmName(s.ipaddr);
+                    var vmName = GetVmName(s.ipaddr, vmMappings);
                     var region = string.Empty;
                     if (!string.IsNullOrEmpty(vmName))
                     {
@@ -74,7 +77,11 @@ namespace DeployFront.Pages.ServiceMap
                     || (x.ServiceMap.environment?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
                     || (x.VMName.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase))
                     || (x.Region.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase))
+                    || (x.ServiceMap.customer?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (x.ServiceMap.site?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
                 )
+                .OrderBy(x => x.ServiceMap.customer)
+                .ThenBy(x => x.ServiceMap.hostname)
                 .ToList();
         }
 
@@ -116,6 +123,7 @@ namespace DeployFront.Pages.ServiceMap
             if (entity == null)
                 return new JsonResult(new { success = false, error = "Not found" });
             entity.customer = model.customer;
+            entity.site = model.site;
             entity.notes = model.notes;
             await _db.SaveChangesAsync();
             return new JsonResult(new { success = true });
@@ -158,6 +166,7 @@ namespace DeployFront.Pages.ServiceMap
         {
             public int id { get; set; }
             public string? customer { get; set; }
+            public string? site { get; set; }
             public string? notes { get; set; }
         }
 
@@ -174,28 +183,9 @@ namespace DeployFront.Pages.ServiceMap
             public string Region { get; set; } = string.Empty;
         }
 
-        private string GetVmName(string ip)
+        private string GetVmName(string ip, Dictionary<string, string> vmMappings)
         {
-            return ip switch
-            {
-                "10.254.1.8" => "eau1-f4d-prod-vm-07-emecoappsrv01",
-                "10.254.1.15" => "eau1-f4d-qa-vm-12-appsrv01",
-                "10.250.32.6" => "eau1-f4d-test-vm-appsrv02",
-                "10.254.1.7" => "eau1-f4d-prod-vm-02-appsrv02",
-                "10.254.1.9" => "eau1-f4d-prod-vm-08-appsrv03",
-                "10.254.1.4" => "eau1-f4d-prod-vm-10-appsrv04",
-                "10.250.16.4" => "eau1-f4d-prod-vm-appsrv05",
-                "10.250.16.6" => "eau1-f4d-prod-vm-appsrv06",
-                "10.250.16.7" => "eau1-f4d-prod-vm-appsrv07",
-                "10.250.16.9" => "eau1-f4d-prod-vm-appsrv08",
-                "10.248.16.4" => "neu1-f4d-prod-vm-appsrv01",
-                "10.254.1.11" => "wus3-f4d-prod-vm-09-appsrv01",
-                "10.250.16.5" => "wus3-f4d-prod-vm-appsrv03",
-                "10.250.16.8" => "wus3-f4d-prod-vm-appsrv04",
-                "10.249.16.4" => "wus3-f4d-prod-vm-appsrv05",
-                // Add more mappings here as needed
-                _ => string.Empty
-            };
+            return vmMappings.TryGetValue(ip, out var vmName) ? vmName : string.Empty;
         }
     }
 }

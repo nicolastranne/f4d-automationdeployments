@@ -1,0 +1,96 @@
+@page
+@model DeployFront.Pages.DashboardModel
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<h2 class="mb-3">Service Health Dashboard</h2>
+
+<form method="get" class="mb-3">
+    <div class="input-group">
+        <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by hostname..." />
+        @if (Model.OutagesOnly)
+        {
+            <input type="hidden" name="OutagesOnly" value="true" />
+        }
+        <button type="submit" class="btn btn-outline-secondary">Search</button>
+    </div>
+</form>
+
+@if (Model.OutagesOnly)
+{
+    <div class="alert alert-warning py-2 d-flex justify-content-between align-items-center">
+        <span>Showing only services with current outages.</span>
+        <a asp-page="/Dashboard" asp-route-SearchTerm="@Model.SearchTerm" class="btn btn-sm btn-outline-dark">Clear filter</a>
+    </div>
+}
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <a asp-page="/Dashboard" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="true" class="text-decoration-none d-block">
+        <div class="card text-bg-danger h-100" style="cursor:pointer;">
+            <div class="card-body">
+                <h6 class="card-title">Current Outages</h6>
+                <h3 class="mb-0">@Model.CurrentOutages</h3>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-primary h-100">
+            <div class="card-body">
+                <h6 class="card-title">Iris Services</h6>
+                <h3 class="mb-0">@Model.IrisServiceCount</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-warning h-100">
+            <div class="card-body">
+                <h6 class="card-title">Unhealthy Checks (1h)</h6>
+                <h3 class="mb-0">@Model.UnhealthyChecksLastHour</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-success h-100">
+            <div class="card-body">
+                <h6 class="card-title">Avg Response (1h)</h6>
+                <h3 class="mb-0">@Math.Round(Model.AverageResponseMsLastHour, 0) ms</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        Iris Service Uptime (Last 24h)
+    </div>
+    <div class="card-body">
+        @if (Model.IrisUptimeCards.Count == 0)
+        {
+            <p class="text-muted mb-0">No uptime data available yet.</p>
+        }
+        else
+        {
+            <div class="row g-3 row-cols-1 row-cols-md-2 row-cols-lg-5">
+                @foreach (var service in Model.IrisUptimeCards)
+                {
+                    var barClass = service.UptimePercent >= 99 ? "bg-success" : service.UptimePercent >= 95 ? "bg-warning" : "bg-danger";
+                    <div class="col">
+                        <a href="@service.ServiceUrl" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-reset d-block h-100">
+                        <div class="border rounded p-3 h-100">
+                            <div class="fw-semibold text-truncate" title="@service.Hostname">@service.Hostname</div>
+                            <div class="small text-muted">Version: @(string.IsNullOrWhiteSpace(service.AppVersion) ? "N/A" : service.AppVersion)</div>
+                            <div class="small text-muted mb-2">Checks: @service.HealthyChecks/@service.TotalChecks</div>
+                            <div class="progress" role="progressbar" aria-valuenow="@service.UptimePercent" aria-valuemin="0" aria-valuemax="100">
+                                <div class="progress-bar @barClass" style="width: @service.UptimePercent%">@service.UptimePercent%</div>
+                            </div>
+                        </div>
+                        </a>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>

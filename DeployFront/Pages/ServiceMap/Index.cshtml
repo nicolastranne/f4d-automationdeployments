@@ -11,7 +11,7 @@
 }
 <form method="get" class="mb-3">
     <div class="input-group">
-        <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by hostname, app name, or environment, VM, region..." />
+        <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by hostname, app name, or environment, VM, region, site, customer..." />
         <button type="submit" class="btn btn-outline-secondary">Search</button>
     </div>
 </form>
@@ -21,18 +21,19 @@
 <form id="antiForgeryForm" method="post" class="d-none">
     @Html.AntiForgeryToken()
 </form>
-<table class="table table-bordered">
+<table class="table table-bordered table-sm" style="font-size:0.85rem;">
     <thead>
         <tr>
             <th>Hostname</th>
             <th>VM Name</th>
             <th>IP Address</th>
             <th>Port</th>
-            <th>App Name</th>
+            @* <th>App Name</th> *@
             <th>App Version</th>
             <th>Environment</th>
             <th>Service Type</th>
             <th>Customer</th>
+            <th>Site</th>
             <th>Notes</th>
             <th>Region</th>
             <th>Actions</th>
@@ -42,20 +43,30 @@
     @foreach (var row in Model.ServiceMapsWithVm)
     {
         <tr>
-            <td>@row.ServiceMap.hostname</td>
+            <td>
+                @{
+                    var hostUrl = $"{row.ServiceMap.protocol}://{row.ServiceMap.hostname}";
+                    if (row.ServiceMap.port > 0 && row.ServiceMap.port != 80 && row.ServiceMap.port != 443)
+                    {
+                        hostUrl = $"{hostUrl}";
+                    }
+                }
+                <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
+            </td>
             <td>@row.VMName</td>
             <td>@row.ServiceMap.ipaddr</td>
             <td>@row.ServiceMap.port</td>
-            <td>@row.ServiceMap.appname</td>
+            @* <td>@row.ServiceMap.appname</td> *@
             <td>@row.ServiceMap.appversion</td>
             <td>@row.ServiceMap.environment</td>
             <td>@row.ServiceMap.servicetype</td>
             <td>@row.ServiceMap.customer</td>
+            <td>@row.ServiceMap.site</td>
             <td>@row.ServiceMap.notes</td>
             <td>@row.Region</td>
             <td>
                 <div class="d-flex flex-row gap-1 align-items-center" style="font-size: 0.9rem;">
-                    <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname">
+                    <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname">
                         <i class="bi bi-pencil"></i>
                     </button>
                     @{
@@ -107,6 +118,10 @@
             <input type="text" class="form-control" id="edit-customer" name="customer" />
           </div>
           <div class="mb-3">
+            <label for="edit-site" class="form-label">Site</label>
+            <input type="text" class="form-control" id="edit-site" name="site" />
+          </div>
+          <div class="mb-3">
             <label for="edit-notes" class="form-label">Notes</label>
             <textarea class="form-control" id="edit-notes" name="notes"></textarea>
           </div>
@@ -154,6 +169,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var upgradeModal = new bootstrap.Modal(document.getElementById('upgradeModal'));
     var editId = document.getElementById('edit-id');
     var editCustomer = document.getElementById('edit-customer');
+    var editSite = document.getElementById('edit-site');
     var editNotes = document.getElementById('edit-notes');
     var editHostname = document.getElementById('edit-hostname');
     var saveBtn = document.getElementById('saveEditBtn');
@@ -167,6 +183,7 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.addEventListener('click', function() {
             editId.value = btn.getAttribute('data-id');
             editCustomer.value = btn.getAttribute('data-customer') || '';
+            editSite.value = btn.getAttribute('data-site') || '';
             editNotes.value = btn.getAttribute('data-notes') || '';
             editHostname.value = btn.getAttribute('data-hostname') || '';
             editModal.show();
@@ -205,6 +222,7 @@ document.addEventListener('DOMContentLoaded', function() {
             body: JSON.stringify({
                 id: editId.value,
                 customer: editCustomer.value,
+                site: editSite.value,
                 notes: editNotes.value
             })
         })
