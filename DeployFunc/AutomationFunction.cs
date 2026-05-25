@@ -9,10 +9,16 @@ using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Azure.Management.Automation;
-using Microsoft.Azure.Management.Automation.Models;
-using Microsoft.Rest.Azure.Authentication;
 using System.Collections.Generic;
+using Azure.Identity;
+using Azure.ResourceManager;
+using Azure.ResourceManager.Automation;
+using Azure.ResourceManager.Automation.Models;
+using Azure.Core;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+
 
 namespace DeployFunc
 {
@@ -252,9 +258,9 @@ namespace DeployFunc
         }
 
         // HTTP trigger to start an Azure Automation runbook
-        [Function("TriggerRunbook")]
-        public async Task<IActionResult> TriggerRunbookAsync(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "trigger-runbook")] HttpRequest req)
+        [Function("TriggerRunbook_F4DUpdateServices")]
+        public async Task<IActionResult> TriggerRunbook_F4DUpdateServices_Async(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "trigger-runbook-f4dupdateservices")] HttpRequest req)
         {
             // Parse parameters from body (JSON)
             var body = await new StreamReader(req.Body).ReadToEndAsync();
@@ -268,19 +274,19 @@ namespace DeployFunc
             bool forceDownload = data.TryGetProperty("ForceDownload", out var fd) ? fd.GetBoolean() : true;
 
             // These should be in your config/environment
-            string tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
-            string clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
-            string clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET");
             string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
             string resourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
             string automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
             string runbookName = Environment.GetEnvironmentVariable("AUTOMATION_RUNBOOK_NAME");
 
-            // Authenticate
-            var serviceCreds = await ApplicationTokenProvider.LoginSilentAsync(tenantId, clientId, clientSecret);
-            var automationClient = new AutomationClient(serviceCreds) { SubscriptionId = subscriptionId };
+            if (string.IsNullOrWhiteSpace(subscriptionId)
+                || string.IsNullOrWhiteSpace(resourceGroup)
+                || string.IsNullOrWhiteSpace(automationAccount)
+                || string.IsNullOrWhiteSpace(runbookName))
+            {
+                return new BadRequestObjectResult("Missing automation configuration environment variables.");
+            }
 
-            // Prepare parameters
             var parameters = new Dictionary<string, string>
             {
                 { "DestinationAddressPrefix", destinationAddressPrefix },
@@ -288,23 +294,77 @@ namespace DeployFunc
                 { "ServiceName", serviceName },
                 { "SqlServer", sqlServer },
                 { "Database", database },
-                { "ForceDownload", forceDownload.ToString() }
+                { "ForceDownload", forceDownload.ToString().ToLower() }
             };
 
-            // Start runbook
-            var job = await automationClient.Job.CreateAsync(
-                resourceGroup,
-                automationAccount,
-                new JobCreateParameters
-                {
-                    Properties = new JobCreateProperties
-                    {
-                        Runbook = new RunbookAssociationProperty { Name = runbookName },
-                        Parameters = parameters
-                    }
-                });
+            var credential = new DefaultAzureCredential();
+            var token = await credential.GetTokenAsync(
+                new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
 
-            return new OkObjectResult(new { jobId = job.JobId, status = job.Status });
+            var jobName = Guid.NewGuid().ToString();
+            var requestUri = $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Automation/automationAccounts/{automationAccount}/jobs/{jobName}?api-version=2023-11-01";
+
+            var payload = new
+            {
+                properties = new
+                {
+                    runbook = new { name = runbookName },
+                    parameters
+                }
+            };
+
+            using var httpClient = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Put, requestUri)
+            {
+                Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+
+            using var response = await httpClient.SendAsync(request);
+            var responseContent = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to start runbook. Status: {StatusCode}, Body: {Body}", response.StatusCode, responseContent);
+                return new ObjectResult(responseContent) { StatusCode = (int)response.StatusCode };
+            }
+
+            return new OkObjectResult(new { jobId = jobName, status = "Submitted", details = responseContent });
+        }
+        // HTTP trigger to check status of an Azure Automation job
+        [Function("CheckRunbookJobStatus")]
+        public async Task<IActionResult> CheckRunbookJobStatusAsync(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "check-runbook-job-status/{jobId}")] HttpRequest req, string jobId)
+        {
+            string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
+            string resourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
+            string automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
+            if (string.IsNullOrWhiteSpace(subscriptionId)
+                || string.IsNullOrWhiteSpace(resourceGroup)
+                || string.IsNullOrWhiteSpace(automationAccount)
+                || string.IsNullOrWhiteSpace(jobId))
+            {
+                return new BadRequestObjectResult("Missing required parameters or environment variables.");
+            }
+
+            var credential = new DefaultAzureCredential();
+            var token = await credential.GetTokenAsync(
+                new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
+
+            var requestUri = $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Automation/automationAccounts/{automationAccount}/jobs/{jobId}?api-version=2023-11-01";
+
+            using var httpClient = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+
+            using var response = await httpClient.SendAsync(request);
+            var responseContent = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to get job status. Status: {StatusCode}, Body: {Body}", response.StatusCode, responseContent);
+                return new ObjectResult(responseContent) { StatusCode = (int)response.StatusCode };
+            }
+
+            return new OkObjectResult(System.Text.Json.JsonDocument.Parse(responseContent).RootElement);
         }
     }
 }
