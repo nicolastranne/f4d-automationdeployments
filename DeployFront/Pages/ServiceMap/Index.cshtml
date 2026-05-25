@@ -32,6 +32,10 @@
             <th>App Version</th>
             <th>Environment</th>
             <th>Service Type</th>
+            <th>Instance</th>
+            <th>SQL Hostname</th>
+            <th>DB Name</th>
+            <th>IRIS Hostname</th>
             <th>Customer</th>
             <th>Site</th>
             <th>Notes</th>
@@ -60,13 +64,17 @@
             <td>@row.ServiceMap.appversion</td>
             <td>@row.ServiceMap.environment</td>
             <td>@row.ServiceMap.servicetype</td>
+            <td>@row.ServiceMap.instance</td>
+            <td>@row.ServiceMap.sqlhostname</td>
+            <td>@row.ServiceMap.dbname</td>
+            <td>@row.ServiceMap.irishostname</td>
             <td>@row.ServiceMap.customer</td>
             <td>@row.ServiceMap.site</td>
             <td>@row.ServiceMap.notes</td>
             <td>@row.Region</td>
             <td>
                 <div class="d-flex flex-row gap-1 align-items-center" style="font-size: 0.9rem;">
-                    <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname">
+                    <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
                         <i class="bi bi-pencil"></i>
                     </button>
                     @{
@@ -84,7 +92,12 @@
                         <button type="button" class="btn btn-sm btn-success p-1 upgrade-btn" title="Upgrade"
                             data-id="@row.ServiceMap.id"
                             data-servicetype="@row.ServiceMap.servicetype"
-                            data-current-version="@row.ServiceMap.appversion">
+                            data-current-version="@row.ServiceMap.appversion"
+                            data-ipaddr="@row.ServiceMap.ipaddr"
+                            data-region="@row.Region"
+                            data-instance="@row.ServiceMap.instance"
+                            data-sqlhostname="@row.ServiceMap.sqlhostname"
+                            data-dbname="@row.ServiceMap.dbname">
                             <i class="bi bi-upload"></i>
                         </button>
                     }
@@ -122,6 +135,10 @@
             <input type="text" class="form-control" id="edit-site" name="site" />
           </div>
           <div class="mb-3">
+            <label for="edit-irishostname" class="form-label">Iris Hostname</label>
+            <input type="text" class="form-control" id="edit-irishostname" name="irishostname" />
+          </div>
+          <div class="mb-3">
             <label for="edit-notes" class="form-label">Notes</label>
             <textarea class="form-control" id="edit-notes" name="notes"></textarea>
           </div>
@@ -144,7 +161,10 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="upgrade-id" />
+         <input type="hidden" id="upgrade-id" />
+         <div class="mb-2">
+             <span id="upgrade-servicetype-title" class="fw-bold" style="font-size:1.1rem;"></span>
+         </div>
         <div class="mb-2">
             <label class="form-label">Current Version</label>
             <input type="text" id="upgrade-current-version" class="form-control" readonly />
@@ -153,6 +173,30 @@
             <label for="upgrade-version" class="form-label">Target Version</label>
             <select id="upgrade-version" class="form-select"></select>
         </div>
+        <div class="mt-2">
+            <label for="upgrade-destination-prefix" class="form-label">VM IP Address</label>
+            <input type="text" id="upgrade-destination-prefix" class="form-control" />
+        </div>
+        <div class="mt-2">
+            <label for="upgrade-service-name" class="form-label">Instance/ServiceName</label>
+            <input type="text" id="upgrade-service-name" class="form-control" />
+        </div>
+        <div class="mt-2">
+            <label for="upgrade-sql-server" class="form-label">SQL Server</label>
+            <input type="text" id="upgrade-sql-server" class="form-control" />
+        </div>
+        <div class="mt-2">
+            <label for="upgrade-database" class="form-label">Database</label>
+            <input type="text" id="upgrade-database" class="form-control" />
+        </div>
+        <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="upgrade-force-download">
+            <label class="form-check-label" for="upgrade-force-download">
+                Force Download
+            </label>
+        </div>
+      <div class="alert alert-warning mt-3" role="alert" style="font-size:0.95rem;">
+        <strong>Warning:</strong> Please carefully review all the above fields before proceeding with the upgrade.
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -170,20 +214,30 @@ document.addEventListener('DOMContentLoaded', function() {
     var editId = document.getElementById('edit-id');
     var editCustomer = document.getElementById('edit-customer');
     var editSite = document.getElementById('edit-site');
+    var editIrisHostname = document.getElementById('edit-irishostname');
     var editNotes = document.getElementById('edit-notes');
     var editHostname = document.getElementById('edit-hostname');
     var saveBtn = document.getElementById('saveEditBtn');
     var upgradeId = document.getElementById('upgrade-id');
+    var upgradeServiceTypeTitle = document.getElementById('upgrade-servicetype-title');
     var upgradeCurrentVersion = document.getElementById('upgrade-current-version');
     var upgradeVersion = document.getElementById('upgrade-version');
+    var upgradeDestinationPrefix = document.getElementById('upgrade-destination-prefix');
+    var upgradeServiceName = document.getElementById('upgrade-service-name');
+    var upgradeSqlServer = document.getElementById('upgrade-sql-server');
+    var upgradeDatabase = document.getElementById('upgrade-database');
+    var upgradeForceDownload = document.getElementById('upgrade-force-download');
     var confirmUpgradeBtn = document.getElementById('confirmUpgradeBtn');
     var availableVersions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableVersions));
+    var defaultSqlServer = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DefaultSqlServer));
+    var defaultDatabase = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DefaultDatabase));
 
     document.querySelectorAll('.edit-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
             editId.value = btn.getAttribute('data-id');
             editCustomer.value = btn.getAttribute('data-customer') || '';
             editSite.value = btn.getAttribute('data-site') || '';
+            editIrisHostname.value = btn.getAttribute('data-irishostname') || '';
             editNotes.value = btn.getAttribute('data-notes') || '';
             editHostname.value = btn.getAttribute('data-hostname') || '';
             editModal.show();
@@ -193,11 +247,21 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.upgrade-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
             var id = btn.getAttribute('data-id');
-            var serviceType = (btn.getAttribute('data-servicetype') || '').toLowerCase();
+            var serviceType = btn.getAttribute('data-servicetype') || '';
             var currentVersion = btn.getAttribute('data-current-version') || '';
+            var destinationAddressPrefix = btn.getAttribute('data-ipaddr') || '';
+            var serviceName = btn.getAttribute('data-instance') || '';
+            var sqlHostname = btn.getAttribute('data-sqlhostname') || '';
+            var dbName = btn.getAttribute('data-dbname') || '';
 
             upgradeId.value = id || '';
+            upgradeServiceTypeTitle.textContent = serviceType ? `${serviceType}` : '';
             upgradeCurrentVersion.value = currentVersion;
+            upgradeDestinationPrefix.value = destinationAddressPrefix;
+            upgradeServiceName.value = serviceName;
+            upgradeSqlServer.value = sqlHostname || defaultSqlServer || '';
+            upgradeDatabase.value = dbName || defaultDatabase || '';
+            upgradeForceDownload.checked = false;
 
             var versions = availableVersions[serviceType] || availableVersions[btn.getAttribute('data-servicetype')] || [];
             var options = versions
@@ -223,6 +287,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 id: editId.value,
                 customer: editCustomer.value,
                 site: editSite.value,
+                irishostname: editIrisHostname.value,
                 notes: editNotes.value
             })
         })
@@ -246,6 +311,15 @@ document.addEventListener('DOMContentLoaded', function() {
     confirmUpgradeBtn.addEventListener('click', function() {
         const antiForgeryToken = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
         const selectedVersion = upgradeVersion.value;
+        const destinationAddressPrefix = upgradeDestinationPrefix.value.trim();
+        const serviceName = upgradeServiceName.value.trim();
+        const sqlServer = upgradeSqlServer.value.trim();
+        const database = upgradeDatabase.value.trim();
+
+        if (!selectedVersion || !destinationAddressPrefix || !serviceName || !sqlServer || !database) {
+            alert('Please fill all required upgrade fields.');
+            return;
+        }
 
         fetch('?handler=Upgrade', {
             method: 'POST',
@@ -255,7 +329,12 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify({
                 id: parseInt(upgradeId.value, 10),
-                targetVersion: selectedVersion
+                targetVersion: selectedVersion,
+                destinationAddressPrefix: destinationAddressPrefix,
+                serviceName: serviceName,
+                sqlServer: sqlServer,
+                database: database,
+                forceDownload: upgradeForceDownload.checked
             })
         })
         .then(async r => {
@@ -268,7 +347,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.success) {
                 upgradeModal.hide();
-                alert('Upgrade request captured (no action executed).');
+                alert('Upgrade triggered successfully.');
             } else {
                 alert(data.error || 'Failed to submit upgrade request.');
             }

@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using DeployFunc;
 using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace DeployFront.Pages.ServiceMap
 {
@@ -18,6 +20,8 @@ namespace DeployFront.Pages.ServiceMap
         public List<ServiceMapWithVm> ServiceMapsWithVm { get; set; } = new();
         public Dictionary<string, string> LatestAppVersions { get; set; } = new();
         public Dictionary<string, List<string>> AvailableVersions { get; set; } = new();
+        public string DefaultSqlServer { get; set; } = string.Empty;
+        public string DefaultDatabase { get; set; } = string.Empty;
         [Microsoft.AspNetCore.Mvc.BindProperty(SupportsGet = true)]
         public string? SearchTerm { get; set; }
 
@@ -53,6 +57,9 @@ namespace DeployFront.Pages.ServiceMap
                     g => g.Key,
                     g => g.Select(x => x.appversion!).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList()
                 );
+
+            DefaultSqlServer = _configuration["UpgradeDefaults:SqlServer"] ?? string.Empty;
+            DefaultDatabase = _configuration["UpgradeDefaults:Database"] ?? string.Empty;
 
             ServiceMapsWithVm = allMaps
                 .Select(s => {
@@ -124,6 +131,7 @@ namespace DeployFront.Pages.ServiceMap
                 return new JsonResult(new { success = false, error = "Not found" });
             entity.customer = model.customer;
             entity.site = model.site;
+            entity.irishostname = model.irishostname;
             entity.notes = model.notes;
             await _db.SaveChangesAsync();
             return new JsonResult(new { success = true });
@@ -132,33 +140,65 @@ namespace DeployFront.Pages.ServiceMap
         [IgnoreAntiforgeryToken]
         public async Task<IActionResult> OnPostUpgradeAsync([FromBody] UpgradeRequestModel model)
         {
-            if (model == null || model.id <= 0 || string.IsNullOrWhiteSpace(model.targetVersion))
+            if (model == null
+                || model.id <= 0
+                || string.IsNullOrWhiteSpace(model.targetVersion)
+                || string.IsNullOrWhiteSpace(model.destinationAddressPrefix)
+                || string.IsNullOrWhiteSpace(model.serviceName)
+                || string.IsNullOrWhiteSpace(model.sqlServer)
+                || string.IsNullOrWhiteSpace(model.database))
                 return new JsonResult(new { success = false, error = "Invalid data" });
 
             var entity = await _db.ServiceMaps.FirstOrDefaultAsync(x => x.id == model.id);
             if (entity == null)
                 return new JsonResult(new { success = false, error = "Service not found" });
 
+            var baseUrl = _configuration["FunctionApp:BaseUrl"]?.TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(baseUrl))
+                return new JsonResult(new { success = false, error = "Function App URL is not configured." });
+
+            var client = _httpClientFactory.CreateClient();
+            var payload = new
+            {
+                DestinationAddressPrefix = model.destinationAddressPrefix,
+                Version = model.targetVersion,
+                ServiceName = model.serviceName,
+                SqlServer = model.sqlServer,
+                Database = model.database,
+                ForceDownload = model.forceDownload
+            };
+
+            var response = await client.PostAsJsonAsync($"{baseUrl}/trigger-runbook-f4dupdateservices", payload);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return new JsonResult(new
+                {
+                    success = false,
+                    error = "Failed to trigger runbook.",
+                    details = body
+                });
+            }
+
+            object? responseData = null;
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                try
+                {
+                    responseData = JsonSerializer.Deserialize<object>(body);
+                }
+                catch
+                {
+                    responseData = body;
+                }
+            }
+
             return new JsonResult(new
             {
                 success = true,
-                message = "Upgrade request received. No action executed.",
-                service = new
-                {
-                    entity.id,
-                    entity.hostname,
-                    entity.ipaddr,
-                    entity.port,
-                    entity.appname,
-                    entity.appversion,
-                    entity.environment,
-                    entity.servicetype,
-                    entity.customer,
-                    entity.notes,
-                    entity.active,
-                    entity.modified
-                },
-                requestedVersion = model.targetVersion
+                message = "Runbook trigger submitted.",
+                runbookResponse = responseData
             });
         }
 
@@ -167,6 +207,7 @@ namespace DeployFront.Pages.ServiceMap
             public int id { get; set; }
             public string? customer { get; set; }
             public string? site { get; set; }
+            public string? irishostname { get; set; }
             public string? notes { get; set; }
         }
 
@@ -174,6 +215,11 @@ namespace DeployFront.Pages.ServiceMap
         {
             public int id { get; set; }
             public string? targetVersion { get; set; }
+            public string? destinationAddressPrefix { get; set; }
+            public string? serviceName { get; set; }
+            public string? sqlServer { get; set; }
+            public string? database { get; set; }
+            public bool forceDownload { get; set; } = true;
         }
 
         public class ServiceMapWithVm

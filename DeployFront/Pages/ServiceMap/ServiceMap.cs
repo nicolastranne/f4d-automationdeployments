@@ -39,5 +39,13 @@ namespace DeployFront.Pages.ServiceMap
         public DateTime modified { get; set; }
         [MaxLength(1000)]
         public string? notes { get; set; }
+        [MaxLength(100)]
+        public string? instance { get; set; }
+        [MaxLength(100)]
+        public string? sqlhostname { get; set; }
+        [MaxLength(100)]
+        public string? dbname { get; set; }
+        [MaxLength(100)]
+        public string? irishostname { get; set; }
     }
 }

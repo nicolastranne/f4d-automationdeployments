@@ -239,14 +239,47 @@ namespace DeployFunc
                     var xml = await response.Content.ReadAsStringAsync();
                     // Parse XML
                     var doc = System.Xml.Linq.XDocument.Parse(xml);
-                    var serverElem = doc.Root?.Element("server");
+                    var liveElem = doc.Root?.Name.LocalName == "live" ? doc.Root : doc.Root?.Element("live");
+                    var serverElem = liveElem?.Element("server");
+                    var dbElem = liveElem?.Element("db");
+
                     var appversion = serverElem?.Attribute("version")?.Value;
-                    if (!string.IsNullOrEmpty(appversion))
+                    var instance = serverElem?.Attribute("instance")?.Value;
+                    var sqlhostname = dbElem?.Attribute("hostname")?.Value;
+                    var dbname = dbElem?.Attribute("catalog")?.Value;
+
+                    var changed = false;
+
+                    if (!string.IsNullOrWhiteSpace(appversion) && !string.Equals(service.appversion, appversion, StringComparison.OrdinalIgnoreCase))
                     {
                         service.appversion = appversion;
+                        changed = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(instance) && !string.Equals(service.instance, instance, StringComparison.OrdinalIgnoreCase))
+                    {
+                        service.instance = instance;
+                        changed = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(sqlhostname) && !string.Equals(service.sqlhostname, sqlhostname, StringComparison.OrdinalIgnoreCase))
+                    {
+                        service.sqlhostname = sqlhostname;
+                        changed = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dbname) && !string.Equals(service.dbname, dbname, StringComparison.OrdinalIgnoreCase))
+                    {
+                        service.dbname = dbname;
+                        changed = true;
+                    }
+
+                    if (changed)
+                    {
                         _db.ServiceMaps.Update(service);
                         updated++;
                     }
+
                 }
                 catch (Exception ex)
                 {
@@ -266,7 +299,7 @@ namespace DeployFunc
             var body = await new StreamReader(req.Body).ReadToEndAsync();
             var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
 
-            string destinationAddressPrefix = data.GetProperty("DestinationAddressPrefix").GetString();
+            string VMipaddr = data.GetProperty("VMipaddr").GetString();
             string version = data.GetProperty("Version").GetString();
             string serviceName = data.GetProperty("ServiceName").GetString();
             string sqlServer = data.GetProperty("SqlServer").GetString();
@@ -289,7 +322,7 @@ namespace DeployFunc
 
             var parameters = new Dictionary<string, string>
             {
-                { "DestinationAddressPrefix", destinationAddressPrefix },
+                { "DestinationAddressPrefix", VMipaddr },
                 { "Version", version },
                 { "ServiceName", serviceName },
                 { "SqlServer", sqlServer },
