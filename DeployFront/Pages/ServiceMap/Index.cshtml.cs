@@ -1,15 +1,21 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Azure.Core;
+using Azure.Identity;
 using System.Collections.Generic;
+using System;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using DeployFunc;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 
 namespace DeployFront.Pages.ServiceMap
 {
+    [Authorize]
     public class IndexModel : PageModel
     {
         private readonly ServiceMapDbContext _db;
@@ -48,14 +54,15 @@ namespace DeployFront.Pages.ServiceMap
             LatestAppVersions = allVersions
                 .GroupBy(v => v.servicetype)
                 .Select(g => new { ServiceType = g.Key, Latest = g.Max(x => x.appversion) })
-                .ToDictionary(x => x.ServiceType!, x => x.Latest!);
+                .ToDictionary(x => x.ServiceType!, x => x.Latest!, StringComparer.OrdinalIgnoreCase);
 
             // Build available versions dictionary for each servicetype
             AvailableVersions = allVersions
                 .GroupBy(v => v.servicetype!)
                 .ToDictionary(
                     g => g.Key,
-                    g => g.Select(x => x.appversion!).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList()
+                    g => g.Select(x => x.appversion!).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList(),
+                    StringComparer.OrdinalIgnoreCase
                 );
 
             DefaultSqlServer = _configuration["UpgradeDefaults:SqlServer"] ?? string.Empty;
@@ -101,16 +108,27 @@ namespace DeployFront.Pages.ServiceMap
                 return RedirectToPage();
             }
 
+            var token = await GetFunctionAppAccessTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                ForceSyncMessage = "Function App scope/client ID is not configured.";
+                return RedirectToPage();
+            }
+
             var client = _httpClientFactory.CreateClient();
 
-            var upsertResponse = await client.GetAsync($"{baseUrl}/upsertservicemap");
+            using var upsertRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/upsertservicemap");
+            upsertRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var upsertResponse = await client.SendAsync(upsertRequest);
             if (!upsertResponse.IsSuccessStatusCode)
             {
                 ForceSyncMessage = $"Force Sync failed on upsert: {upsertResponse.StatusCode}";
                 return RedirectToPage();
             }
 
-            var versionResponse = await client.GetAsync($"{baseUrl}/updateirisappversions");
+            using var versionRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/updateirisappversions");
+            versionRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var versionResponse = await client.SendAsync(versionRequest);
             if (!versionResponse.IsSuccessStatusCode)
             {
                 ForceSyncMessage = $"Force Sync failed on version update: {versionResponse.StatusCode}";
@@ -142,11 +160,14 @@ namespace DeployFront.Pages.ServiceMap
         {
             if (model == null
                 || model.id <= 0
+                || string.IsNullOrWhiteSpace(model.serviceType)
                 || string.IsNullOrWhiteSpace(model.targetVersion)
                 || string.IsNullOrWhiteSpace(model.destinationAddressPrefix)
                 || string.IsNullOrWhiteSpace(model.serviceName)
-                || string.IsNullOrWhiteSpace(model.sqlServer)
-                || string.IsNullOrWhiteSpace(model.database))
+                || (!(string.Equals(model.serviceType, "sesame", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(model.serviceType, "goline", StringComparison.OrdinalIgnoreCase))
+                    && (string.IsNullOrWhiteSpace(model.sqlServer)
+                        || string.IsNullOrWhiteSpace(model.database))))
                 return new JsonResult(new { success = false, error = "Invalid data" });
 
             var entity = await _db.ServiceMaps.FirstOrDefaultAsync(x => x.id == model.id);
@@ -163,6 +184,7 @@ namespace DeployFront.Pages.ServiceMap
                 DestinationAddressPrefix = model.destinationAddressPrefix,
                 Version = model.targetVersion,
                 ServiceName = model.serviceName,
+                ServiceType = model.serviceType,
                 SqlServer = model.sqlServer,
                 Database = model.database,
                 ForceDownload = model.forceDownload
@@ -214,6 +236,7 @@ namespace DeployFront.Pages.ServiceMap
         public class UpgradeRequestModel
         {
             public int id { get; set; }
+            public string? serviceType { get; set; }
             public string? targetVersion { get; set; }
             public string? destinationAddressPrefix { get; set; }
             public string? serviceName { get; set; }
@@ -232,6 +255,55 @@ namespace DeployFront.Pages.ServiceMap
         private string GetVmName(string ip, Dictionary<string, string> vmMappings)
         {
             return vmMappings.TryGetValue(ip, out var vmName) ? vmName : string.Empty;
+        }
+
+        private async Task<string?> GetFunctionAppAccessTokenAsync()
+        {
+
+            try
+            {
+                var credential = new DefaultAzureCredential(
+                    new DefaultAzureCredentialOptions
+                    {
+                        ExcludeVisualStudioCredential = true,
+                        ExcludeManagedIdentityCredential = true,
+                    });
+                var clientId = _configuration["FunctionApp:ClientID"];
+                    if (string.IsNullOrWhiteSpace(clientId))
+                    {
+                        return null;
+                    }
+                var token = await credential.GetTokenAsync(
+                    new TokenRequestContext(new[]
+                    {
+                $"api://{clientId}/.default"
+                    }));
+
+                return token.Token;
+            }
+            catch (Exception ex)
+            {
+                // Optional logging
+                Console.WriteLine(ex.ToString());
+                return null;
+            }
+
+
+            //var scope = _configuration["FunctionApp:Scope"];
+            //if (string.IsNullOrWhiteSpace(scope))
+            //{
+            //    var clientId = _configuration["FunctionApp:ClientID"];
+            //    if (string.IsNullOrWhiteSpace(clientId))
+            //    {
+            //        return null;
+            //    }
+
+            //    scope = $"api://{clientId}/.default";
+            //}
+
+            //var credential = new DefaultAzureCredential();
+            //var accessToken = await credential.GetTokenAsync(new TokenRequestContext(new[] { scope }));
+            //return accessToken.Token;
         }
     }
 }

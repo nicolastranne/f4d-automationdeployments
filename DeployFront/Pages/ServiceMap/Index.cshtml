@@ -21,25 +21,26 @@
 <form id="antiForgeryForm" method="post" class="d-none">
     @Html.AntiForgeryToken()
 </form>
-<table class="table table-bordered table-sm" style="font-size:0.85rem;">
+
+<table class="table table-bordered table-striped table-hover table-sm align-middle" style="font-size:0.85rem;">
     <thead>
         <tr>
             <th>Hostname</th>
             <th>VM Name</th>
             <th>IP Address</th>
-            <th>Port</th>
+            <th class="col-small">Port</th>
             @* <th>App Name</th> *@
             <th>App Version</th>
             <th>Environment</th>
             <th>Service Type</th>
             <th>Instance</th>
-            <th>SQL Hostname</th>
+            <th class="col-sql">SQL Hostname</th>
             <th>DB Name</th>
-            <th>IRIS Hostname</th>
+            <th class="col-hostname">IRIS Hostname</th>
             <th>Customer</th>
             <th>Site</th>
             <th>Notes</th>
-            <th>Region</th>
+            <th class="col-small">Region</th>
             <th>Actions</th>
         </tr>
     </thead>
@@ -55,7 +56,9 @@
                         hostUrl = $"{hostUrl}";
                     }
                 }
-                <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
+               
+
+                    <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
             </td>
             <td>@row.VMName</td>
             <td>@row.ServiceMap.ipaddr</td>
@@ -63,17 +66,18 @@
             @* <td>@row.ServiceMap.appname</td> *@
             <td>@row.ServiceMap.appversion</td>
             <td>@row.ServiceMap.environment</td>
+                
             <td>@row.ServiceMap.servicetype</td>
             <td>@row.ServiceMap.instance</td>
             <td>@row.ServiceMap.sqlhostname</td>
             <td>@row.ServiceMap.dbname</td>
-            <td>@row.ServiceMap.irishostname</td>
+            <td class="col-hostname">@row.ServiceMap.irishostname</td>
             <td>@row.ServiceMap.customer</td>
             <td>@row.ServiceMap.site</td>
             <td>@row.ServiceMap.notes</td>
             <td>@row.Region</td>
             <td>
-                <div class="d-flex flex-row gap-1 align-items-center" style="font-size: 0.9rem;">
+                <div class="d-flex flex-row gap-1 align-items-center text-center" style="font-size: 0.9rem;">
                     <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
                         <i class="bi bi-pencil"></i>
                     </button>
@@ -81,10 +85,20 @@
                         var st = row.ServiceMap.servicetype;
                         var currentVersion = row.ServiceMap.appversion;
                         var showUpgrade = false;
-                        if ((st == "iris" || st == "goline" || st == "sesame" || st == "ireport") && !string.IsNullOrWhiteSpace(currentVersion) && Model.LatestAppVersions.TryGetValue(st, out var latestVersion) && !string.IsNullOrWhiteSpace(latestVersion))
+                        if (string.Equals(st, "sesame", StringComparison.OrdinalIgnoreCase))
                         {
-                            // Use string comparison for version, or implement a version comparer if needed
-                            showUpgrade = string.Compare(currentVersion, latestVersion, System.StringComparison.OrdinalIgnoreCase) < 0;
+                            showUpgrade = true;
+                        }
+                        else if ((string.Equals(st, "iris", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(st, "goline", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(st, "ireport", StringComparison.OrdinalIgnoreCase))
+                                && Model.AvailableVersions.TryGetValue(st ?? string.Empty, out var versionsForType)
+                                && versionsForType != null
+                                && versionsForType.Count > 0)
+                        {
+                            showUpgrade = string.IsNullOrWhiteSpace(currentVersion)
+                                || versionsForType.Any(v => !string.IsNullOrWhiteSpace(v)
+                                    && string.Compare(v, currentVersion, StringComparison.OrdinalIgnoreCase) > 0);
                         }
                     }
                     @if (showUpgrade)
@@ -107,6 +121,7 @@
     }
     </tbody>
 </table>
+
 
 <!-- Bootstrap Icons CDN -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -181,11 +196,11 @@
             <label for="upgrade-service-name" class="form-label">Instance/ServiceName</label>
             <input type="text" id="upgrade-service-name" class="form-control" />
         </div>
-        <div class="mt-2">
+        <div class="mt-2" id="upgrade-sql-server-group">
             <label for="upgrade-sql-server" class="form-label">SQL Server</label>
             <input type="text" id="upgrade-sql-server" class="form-control" />
         </div>
-        <div class="mt-2">
+        <div class="mt-2" id="upgrade-database-group">
             <label for="upgrade-database" class="form-label">Database</label>
             <input type="text" id="upgrade-database" class="form-control" />
         </div>
@@ -226,9 +241,14 @@ document.addEventListener('DOMContentLoaded', function() {
     var upgradeServiceName = document.getElementById('upgrade-service-name');
     var upgradeSqlServer = document.getElementById('upgrade-sql-server');
     var upgradeDatabase = document.getElementById('upgrade-database');
+    var upgradeSqlServerGroup = document.getElementById('upgrade-sql-server-group');
+    var upgradeDatabaseGroup = document.getElementById('upgrade-database-group');
     var upgradeForceDownload = document.getElementById('upgrade-force-download');
     var confirmUpgradeBtn = document.getElementById('confirmUpgradeBtn');
     var availableVersions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableVersions));
+    var availableVersionsLower = Object.fromEntries(
+        Object.entries(availableVersions || {}).map(([k, v]) => [(k || '').toLowerCase(), v])
+    );
     var defaultSqlServer = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DefaultSqlServer));
     var defaultDatabase = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DefaultDatabase));
 
@@ -253,6 +273,8 @@ document.addEventListener('DOMContentLoaded', function() {
             var serviceName = btn.getAttribute('data-instance') || '';
             var sqlHostname = btn.getAttribute('data-sqlhostname') || '';
             var dbName = btn.getAttribute('data-dbname') || '';
+            var normalizedServiceType = (serviceType || '').toLowerCase();
+            var isNoSqlDbType = normalizedServiceType === 'sesame' || normalizedServiceType === 'goline';
 
             upgradeId.value = id || '';
             upgradeServiceTypeTitle.textContent = serviceType ? `${serviceType}` : '';
@@ -263,7 +285,10 @@ document.addEventListener('DOMContentLoaded', function() {
             upgradeDatabase.value = dbName || defaultDatabase || '';
             upgradeForceDownload.checked = false;
 
-            var versions = availableVersions[serviceType] || availableVersions[btn.getAttribute('data-servicetype')] || [];
+            upgradeSqlServerGroup.classList.toggle('d-none', isNoSqlDbType);
+            upgradeDatabaseGroup.classList.toggle('d-none', isNoSqlDbType);
+
+            var versions = availableVersionsLower[(serviceType || '').toLowerCase()] || [];
             var options = versions
                 .filter(function(v) { return v && v.localeCompare(currentVersion, undefined, { sensitivity: 'base' }) > 0; })
                 .map(function(v) { return '<option value="' + v + '">' + v + '</option>'; })
@@ -311,12 +336,15 @@ document.addEventListener('DOMContentLoaded', function() {
     confirmUpgradeBtn.addEventListener('click', function() {
         const antiForgeryToken = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
         const selectedVersion = upgradeVersion.value;
+        const serviceType = (upgradeServiceTypeTitle.textContent || '').trim();
+        const normalizedServiceType = serviceType.toLowerCase();
+        const isNoSqlDbType = normalizedServiceType === 'sesame' || normalizedServiceType === 'goline';
         const destinationAddressPrefix = upgradeDestinationPrefix.value.trim();
         const serviceName = upgradeServiceName.value.trim();
         const sqlServer = upgradeSqlServer.value.trim();
         const database = upgradeDatabase.value.trim();
 
-        if (!selectedVersion || !destinationAddressPrefix || !serviceName || !sqlServer || !database) {
+        if (!selectedVersion || !destinationAddressPrefix || !serviceName || (!isNoSqlDbType && (!sqlServer || !database))) {
             alert('Please fill all required upgrade fields.');
             return;
         }
@@ -329,6 +357,7 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify({
                 id: parseInt(upgradeId.value, 10),
+                serviceType: serviceType,
                 targetVersion: selectedVersion,
                 destinationAddressPrefix: destinationAddressPrefix,
                 serviceName: serviceName,

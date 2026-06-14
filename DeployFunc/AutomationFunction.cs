@@ -46,42 +46,50 @@ namespace DeployFunc
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "readfileshare")] HttpRequest req)
         {
             string connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
-            string shareName = Environment.GetEnvironmentVariable("FileShareName") ?? "myfileshare";
-            string directoryName = Environment.GetEnvironmentVariable("FileShareDirectory") ?? "";
+            string shareName = Environment.GetEnvironmentVariable("FileShareName") ?? "gwshareddata";
+            string directoryName = Environment.GetEnvironmentVariable("FileShareDirectory") ?? "etc/haproxy/maps";
             string fileName = Environment.GetEnvironmentVariable("FileShareFileName") ?? "services.map";
 
             try
             {
+
                 var share = new ShareClient(connectionString, shareName);
-                var directory = share.GetDirectoryClient(directoryName);
-                var file = directory.GetFileClient(fileName);
+
+                var file = share
+                    .GetDirectoryClient(directoryName)
+                    .GetFileClient(fileName);
+
                 if (await file.ExistsAsync())
                 {
                     var download = await file.DownloadAsync();
+
                     using var reader = new System.IO.StreamReader(download.Value.Content);
-                    var lines = new System.Collections.Generic.List<string>();
+                    var lines = new List<string>();
+
                     while (!reader.EndOfStream)
                     {
                         var line = await reader.ReadLineAsync();
                         if (line != null && !line.TrimStart().StartsWith("#"))
                             lines.Add(line);
                     }
+
                     string content = string.Join("\n", lines);
-                    _logger.LogInformation($"File content from Azure File Share: {content}");
+
                     return new OkObjectResult(content);
                 }
                 else
                 {
-                    string msg = $"File not found: {fileName}";
-                    _logger.LogWarning(msg);
-                    return new NotFoundObjectResult(msg);
+                    return new NotFoundObjectResult($"File not found: {fileName}");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error reading from Azure File Share");
-                return new ObjectResult($"Error reading from Azure File Share: {ex.Message}") { StatusCode = 500 };
+                return new ObjectResult($"Error reading from Azure File Share: {ex.Message}")
+                {
+                    StatusCode = 500
+                };
             }
+
         }
 
         // HTTP trigger to upsert ServiceMap table from file share using EF Core
@@ -299,12 +307,63 @@ namespace DeployFunc
             var body = await new StreamReader(req.Body).ReadToEndAsync();
             var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
 
-            string VMipaddr = data.GetProperty("VMipaddr").GetString();
-            string version = data.GetProperty("Version").GetString();
-            string serviceName = data.GetProperty("ServiceName").GetString();
-            string sqlServer = data.GetProperty("SqlServer").GetString();
-            string database = data.GetProperty("Database").GetString();
-            bool forceDownload = data.TryGetProperty("ForceDownload", out var fd) ? fd.GetBoolean() : true;
+            static string? GetStringProperty(System.Text.Json.JsonElement element, params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    if (element.TryGetProperty(name, out var value) && value.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    {
+                        return value.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? value.GetString()
+                            : value.ToString();
+                    }
+                }
+                return null;
+            }
+
+            static bool GetBoolPropertyOrDefault(System.Text.Json.JsonElement element, bool defaultValue, params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    if (!element.TryGetProperty(name, out var value) || value.ValueKind == System.Text.Json.JsonValueKind.Null)
+                        continue;
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.True || value.ValueKind == System.Text.Json.JsonValueKind.False)
+                        return value.GetBoolean();
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var s = value.GetString();
+                        if (bool.TryParse(s, out var b)) return b;
+                        if (s == "1") return true;
+                        if (s == "0") return false;
+                    }
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.Number && value.TryGetInt32(out var i))
+                        return i != 0;
+                }
+
+                return defaultValue;
+            }
+
+            string destinationAddressPrefix = GetStringProperty(data, "DestinationAddressPrefix", "destinationAddressPrefix", "VMipaddr", "vMipaddr") ?? string.Empty;
+            string version = GetStringProperty(data, "Version", "version") ?? string.Empty;
+            string serviceName = GetStringProperty(data, "ServiceName", "serviceName") ?? string.Empty;
+            string sqlServer = GetStringProperty(data, "SqlServer", "sqlServer") ?? string.Empty;
+            string database = GetStringProperty(data, "Database", "database") ?? string.Empty;
+            bool forceDownload = GetBoolPropertyOrDefault(data, true, "ForceDownload", "forceDownload");
+            string serviceType = GetStringProperty(data, "ServiceType", "serviceType") ?? "iris";
+            bool isNoSqlDbType = string.Equals(serviceType, "sesame", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(serviceType, "goline", StringComparison.OrdinalIgnoreCase);
+
+            if (string.IsNullOrWhiteSpace(destinationAddressPrefix)
+                || string.IsNullOrWhiteSpace(version)
+                || string.IsNullOrWhiteSpace(serviceName)
+                || (!isNoSqlDbType && (string.IsNullOrWhiteSpace(sqlServer)
+                    || string.IsNullOrWhiteSpace(database))))
+            {
+                return new BadRequestObjectResult("Missing required runbook parameters.");
+            }
 
             // These should be in your config/environment
             string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
@@ -320,14 +379,15 @@ namespace DeployFunc
                 return new BadRequestObjectResult("Missing automation configuration environment variables.");
             }
 
-            var parameters = new Dictionary<string, string>
+            var parameters = new Dictionary<string, object>
             {
-                { "DestinationAddressPrefix", VMipaddr },
+                { "DestinationAddressPrefix", destinationAddressPrefix },
                 { "Version", version },
                 { "ServiceName", serviceName },
                 { "SqlServer", sqlServer },
                 { "Database", database },
-                { "ForceDownload", forceDownload.ToString().ToLower() }
+                { "ForceDownload", forceDownload },
+                { "ServiceType", serviceType }
             };
 
             var credential = new DefaultAzureCredential();
