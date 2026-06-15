@@ -45,79 +45,112 @@
         </tr>
     </thead>
     <tbody>
-    @foreach (var row in Model.ServiceMapsWithVm)
+    @{
+        var regionIndex = 0;
+    }
+    @foreach (var regionGroup in Model.ServiceMapsWithVm
+        .GroupBy(x => string.IsNullOrWhiteSpace(x.Region) ? "Unknown" : x.Region)
+        .OrderBy(g => g.Key))
     {
-        <tr>
-            <td>
-                @{
-                    var hostUrl = $"{row.ServiceMap.protocol}://{row.ServiceMap.hostname}";
-                    if (row.ServiceMap.port > 0 && row.ServiceMap.port != 80 && row.ServiceMap.port != 443)
-                    {
-                        hostUrl = $"{hostUrl}";
-                    }
-                }
-               
+        var regionId = $"region-{regionIndex++}";
+        var customerIndex = 0;
 
-                    <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
-            </td>
-            <td>@row.VMName</td>
-            <td>@row.ServiceMap.ipaddr</td>
-            <td>@row.ServiceMap.port</td>
-            @* <td>@row.ServiceMap.appname</td> *@
-            <td>@row.ServiceMap.appversion</td>
-            <td>@row.ServiceMap.environment</td>
-                
-            <td>@row.ServiceMap.servicetype</td>
-            <td>@row.ServiceMap.instance</td>
-            <td>@row.ServiceMap.sqlhostname</td>
-            <td>@row.ServiceMap.dbname</td>
-            <td class="col-hostname">@row.ServiceMap.irishostname</td>
-            <td>@row.ServiceMap.customer</td>
-            <td>@row.ServiceMap.site</td>
-            <td>@row.ServiceMap.notes</td>
-            <td>@row.Region</td>
-            <td>
-                <div class="d-flex flex-row gap-1 align-items-center text-center" style="font-size: 0.9rem;">
-                    <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
-                        <i class="bi bi-pencil"></i>
-                    </button>
-                    @{
-                        var st = row.ServiceMap.servicetype;
-                        var currentVersion = row.ServiceMap.appversion;
-                        var showUpgrade = false;
-                        if (string.Equals(st, "sesame", StringComparison.OrdinalIgnoreCase))
-                        {
-                            showUpgrade = true;
-                        }
-                        else if ((string.Equals(st, "iris", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(st, "goline", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(st, "ireport", StringComparison.OrdinalIgnoreCase))
-                                && Model.AvailableVersions.TryGetValue(st ?? string.Empty, out var versionsForType)
-                                && versionsForType != null
-                                && versionsForType.Count > 0)
-                        {
-                            showUpgrade = string.IsNullOrWhiteSpace(currentVersion)
-                                || versionsForType.Any(v => !string.IsNullOrWhiteSpace(v)
-                                    && string.Compare(v, currentVersion, StringComparison.OrdinalIgnoreCase) > 0);
-                        }
-                    }
-                    @if (showUpgrade)
-                    {
-                        <button type="button" class="btn btn-sm btn-success p-1 upgrade-btn" title="Upgrade"
-                            data-id="@row.ServiceMap.id"
-                            data-servicetype="@row.ServiceMap.servicetype"
-                            data-current-version="@row.ServiceMap.appversion"
-                            data-ipaddr="@row.ServiceMap.ipaddr"
-                            data-region="@row.Region"
-                            data-instance="@row.ServiceMap.instance"
-                            data-sqlhostname="@row.ServiceMap.sqlhostname"
-                            data-dbname="@row.ServiceMap.dbname">
-                            <i class="bi bi-upload"></i>
-                        </button>
-                    }
-                </div>
+        <tr class="table-secondary">
+            <td colspan="16">
+                <button class="btn btn-link text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target=".@regionId" aria-expanded="false">
+                    <i class="bi bi-chevron-right me-1"></i><strong>Region: @regionGroup.Key</strong> <span class="text-muted">(@regionGroup.Count())</span>
+                </button>
             </td>
         </tr>
+
+        @foreach (var customerGroup in regionGroup
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.ServiceMap.customer) ? "Unknown" : x.ServiceMap.customer)
+            .OrderBy(g => g.Key))
+        {
+            var customerId = $"{regionId}-customer-{customerIndex++}";
+
+            <tr class="collapse @regionId table-light">
+                <td colspan="16">
+                    <button class="btn btn-link text-decoration-none p-0 ms-3" type="button" data-bs-toggle="collapse" data-bs-target=".@customerId" aria-expanded="false">
+                        <i class="bi bi-chevron-right me-1"></i><strong>Customer: @customerGroup.Key</strong> <span class="text-muted">(@customerGroup.Count())</span>
+                    </button>
+                </td>
+            </tr>
+
+            @foreach (var row in customerGroup)
+            {
+                <tr class="collapse @regionId @customerId">
+                    <td>
+                        @{
+                            var hostUrl = $"{row.ServiceMap.protocol}://{row.ServiceMap.hostname}";
+                            if (row.ServiceMap.port > 0 && row.ServiceMap.port != 80 && row.ServiceMap.port != 443)
+                            {
+                                hostUrl = $"{hostUrl}";
+                            }
+                        }
+
+                        <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
+                    </td>
+                    <td>@row.VMName</td>
+                    <td>@row.ServiceMap.ipaddr</td>
+                    <td>@row.ServiceMap.port</td>
+                    @* <td>@row.ServiceMap.appname</td> *@
+                    <td>@row.ServiceMap.appversion</td>
+                    <td>@row.ServiceMap.environment</td>
+
+                    <td>@row.ServiceMap.servicetype</td>
+                    <td>@row.ServiceMap.instance</td>
+                    <td>@row.ServiceMap.sqlhostname</td>
+                    <td>@row.ServiceMap.dbname</td>
+                    <td class="col-hostname">@row.ServiceMap.irishostname</td>
+                    <td>@row.ServiceMap.customer</td>
+                    <td>@row.ServiceMap.site</td>
+                    <td>@row.ServiceMap.notes</td>
+                    <td>@row.Region</td>
+                    <td>
+                        <div class="d-flex flex-row gap-1 align-items-center text-center" style="font-size: 0.9rem;">
+                            <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            @{
+                                var st = row.ServiceMap.servicetype;
+                                var currentVersion = row.ServiceMap.appversion;
+                                var showUpgrade = false;
+                                if (string.Equals(st, "sesame", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    showUpgrade = true;
+                                }
+                                else if ((string.Equals(st, "iris", StringComparison.OrdinalIgnoreCase)
+                                        || string.Equals(st, "goline", StringComparison.OrdinalIgnoreCase)
+                                        || string.Equals(st, "ireport", StringComparison.OrdinalIgnoreCase))
+                                        && Model.AvailableVersions.TryGetValue(st ?? string.Empty, out var versionsForType)
+                                        && versionsForType != null
+                                        && versionsForType.Count > 0)
+                                {
+                                    showUpgrade = string.IsNullOrWhiteSpace(currentVersion)
+                                        || versionsForType.Any(v => !string.IsNullOrWhiteSpace(v)
+                                            && string.Compare(v, currentVersion, StringComparison.OrdinalIgnoreCase) > 0);
+                                }
+                            }
+                            @if (showUpgrade)
+                            {
+                                <button type="button" class="btn btn-sm btn-success p-1 upgrade-btn" title="Upgrade"
+                                    data-id="@row.ServiceMap.id"
+                                    data-servicetype="@row.ServiceMap.servicetype"
+                                    data-current-version="@row.ServiceMap.appversion"
+                                    data-ipaddr="@row.ServiceMap.ipaddr"
+                                    data-region="@row.Region"
+                                    data-instance="@row.ServiceMap.instance"
+                                    data-sqlhostname="@row.ServiceMap.sqlhostname"
+                                    data-dbname="@row.ServiceMap.dbname">
+                                    <i class="bi bi-upload"></i>
+                                </button>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        }
     }
     </tbody>
 </table>
@@ -125,6 +158,7 @@
 
 <!-- Bootstrap Icons CDN -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<link rel="icon" type="image/x-icon" href="~/ivolve.ico" />
 
 <!-- Edit Modal -->
 <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
