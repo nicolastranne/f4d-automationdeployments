@@ -26,13 +26,36 @@ namespace DeployFunc
         [Function("RunIrisServiceHealthChecks")]
         public async Task RunIrisServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
         {
+            await RunServiceHealthChecksByTypeAsync("iris");
+        }
+
+        [Function("RunIreportServiceHealthChecks")]
+        public async Task RunIreportServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
+        {
+            await RunServiceHealthChecksByTypeAsync("ireport");
+        }
+
+        [Function("RunGolineServiceHealthChecks")]
+        public async Task RunGolineServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
+        {
+            await RunServiceHealthChecksByTypeAsync("goline");
+        }
+
+        [Function("RunSesameServiceHealthChecks")]
+        public async Task RunSesameServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
+        {
+            await RunServiceHealthChecksByTypeAsync("sesame");
+        }
+
+        private async Task RunServiceHealthChecksByTypeAsync(string serviceType)
+        {
             var now = DateTime.UtcNow;
 
-            var irisServices = await _db.ServiceMaps
-                .Where(x => x.active && x.servicetype == "iris" && x.ipaddr != null)
+            var services = await _db.ServiceMaps
+                .Where(x => x.active && x.servicetype == serviceType && x.ipaddr != null)
                 .ToListAsync();
 
-            foreach (var service in irisServices)
+            foreach (var service in services)
             {
                 var healthLog = new ServiceHealthCheckLog
                 {
@@ -113,7 +136,7 @@ namespace DeployFunc
             }
 
             await _db.SaveChangesAsync();
-            _logger.LogInformation("Health check cycle completed for {ServiceCount} iris services.", irisServices.Count);
+            _logger.LogInformation("Health check cycle completed for {ServiceCount} {ServiceType} services.", services.Count, serviceType);
         }
     }
 }

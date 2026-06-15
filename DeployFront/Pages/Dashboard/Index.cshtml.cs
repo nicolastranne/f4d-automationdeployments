@@ -2,9 +2,9 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using DeployFront.Pages.ServiceMap;
 
-namespace DeployFront.Pages
+namespace DeployFront.Pages.Dashboard
 {
-    public class DashboardModel : PageModel
+    public class IndexModel : PageModel
     {
         private readonly ServiceMapDbContext _db;
 
@@ -20,7 +20,7 @@ namespace DeployFront.Pages
         public double AverageResponseMsLastHour { get; set; }
         public List<IrisUptimeCard> IrisUptimeCards { get; set; } = new();
 
-        public DashboardModel(ServiceMapDbContext db)
+        public IndexModel(ServiceMapDbContext db)
         {
             _db = db;
         }
