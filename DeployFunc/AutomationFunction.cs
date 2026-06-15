@@ -97,7 +97,11 @@ namespace DeployFunc
         public async Task<IActionResult> RunFileShareToServiceMapDbAsync(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "upsertservicemap")] HttpRequest req)
         {
+            return await RunFileShareToServiceMapDb_Request();
+        }
 
+        public async Task<IActionResult> RunFileShareToServiceMapDb_Request()
+        {
             string storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
             string shareName = Environment.GetEnvironmentVariable("FileShareName") ?? "myfileshare";
             string directoryName = Environment.GetEnvironmentVariable("FileShareDirectory") ?? "";
@@ -223,10 +227,23 @@ namespace DeployFunc
             }
         }
 
-        // HTTP trigger to update appversion for all 'iris' servicetype
-        [Function("UpdateIrisAppVersions")]
+        [Function("RunUpdateServices")]
+        public async Task<OkObjectResult> RunUpdateServices([TimerTrigger("0 */30 * * * *")] TimerInfo timer)
+        {
+            await RunFileShareToServiceMapDb_Request();
+            await UpdateIrisAppVersions_Request();
+            return new OkObjectResult($"Updated Service map and version");
+        }
+
+            // HTTP trigger to update appversion for all 'iris' servicetype
+            [Function("UpdateIrisAppVersions")]
         public async Task<IActionResult> UpdateIrisAppVersions(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "updateirisappversions")] HttpRequest req)
+        {
+            return await UpdateIrisAppVersions_Request();
+        }
+
+        public async Task<IActionResult> UpdateIrisAppVersions_Request()
         {
             var irisServices = await _db.ServiceMaps
                 .Where(x => x.servicetype == "iris" && x.hostname != null && x.ipaddr != null)
@@ -303,7 +320,6 @@ namespace DeployFunc
         public async Task<IActionResult> TriggerRunbook_F4DUpdateServices_Async(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "trigger-runbook-f4dupdateservices")] HttpRequest req)
         {
-            // Parse parameters from body (JSON)
             var body = await new StreamReader(req.Body).ReadToEndAsync();
             var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
 
