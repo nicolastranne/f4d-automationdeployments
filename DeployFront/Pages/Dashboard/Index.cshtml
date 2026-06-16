@@ -25,6 +25,14 @@
     </div>
 }
 
+@if (!string.IsNullOrWhiteSpace(Model.ServiceTypeFilter))
+{
+    <div class="alert alert-info py-2 d-flex justify-content-between align-items-center">
+        <span>Showing only @Model.ServiceTypeFilter services.</span>
+        <a asp-page="/Dashboard/Index" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="@Model.OutagesOnly" class="btn btn-sm btn-outline-dark">Clear service filter</a>
+    </div>
+}
+
 <div class="row g-3 mb-4">
     <div class="col-md-3">
         <a asp-page="/Dashboard/Index" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="true" class="text-decoration-none d-block">
@@ -39,8 +47,8 @@
     <div class="col-md-3">
         <div class="card text-bg-primary h-100">
             <div class="card-body">
-                <h6 class="card-title">Iris Services</h6>
-                <h3 class="mb-0">@Model.IrisServiceCount</h3>
+                <h6 class="card-title">Tracked Services</h6>
+                <h3 class="mb-0">@Model.TrackedServiceCount</h3>
             </div>
         </div>
     </div>
@@ -62,25 +70,69 @@
     </div>
 </div>
 
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <a asp-page="/Dashboard/Index" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="@Model.OutagesOnly" asp-route-ServiceTypeFilter="iris" class="text-decoration-none text-reset d-block">
+        <div class="card h-100 border-primary" style="cursor:pointer;">
+            <div class="card-body">
+                <h6 class="card-title mb-1">Iris</h6>
+                <h4 class="mb-0">@Model.IrisServiceCount</h4>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a asp-page="/Dashboard/Index" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="@Model.OutagesOnly" asp-route-ServiceTypeFilter="ireport" class="text-decoration-none text-reset d-block">
+        <div class="card h-100 border-info" style="cursor:pointer;">
+            <div class="card-body">
+                <h6 class="card-title mb-1">IReport</h6>
+                <h4 class="mb-0">@Model.IreportServiceCount</h4>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a asp-page="/Dashboard/Index" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="@Model.OutagesOnly" asp-route-ServiceTypeFilter="sesame" class="text-decoration-none text-reset d-block">
+        <div class="card h-100 border-warning" style="cursor:pointer;">
+            <div class="card-body">
+                <h6 class="card-title mb-1">Sesame</h6>
+                <h4 class="mb-0">@Model.SesameServiceCount</h4>
+            </div>
+        </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a asp-page="/Dashboard/Index" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="@Model.OutagesOnly" asp-route-ServiceTypeFilter="goline" class="text-decoration-none text-reset d-block">
+        <div class="card h-100 border-success" style="cursor:pointer;">
+            <div class="card-body">
+                <h6 class="card-title mb-1">Goline</h6>
+                <h4 class="mb-0">@Model.GolineServiceCount</h4>
+            </div>
+        </div>
+        </a>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header">
-        Iris Service Uptime (Last 24h)
+        Service Uptime (Last 24h)
     </div>
     <div class="card-body">
-        @if (Model.IrisUptimeCards.Count == 0)
+        @if (Model.ServiceUptimeCards.Count == 0)
         {
             <p class="text-muted mb-0">No uptime data available yet.</p>
         }
         else
         {
             <div class="row g-3 row-cols-1 row-cols-md-2 row-cols-lg-5">
-                @foreach (var service in Model.IrisUptimeCards)
+                @foreach (var service in Model.ServiceUptimeCards)
                 {
                     var barClass = service.UptimePercent >= 99 ? "bg-success" : service.UptimePercent >= 95 ? "bg-warning" : "bg-danger";
                     <div class="col">
                         <a href="@service.ServiceUrl" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-reset d-block h-100">
                         <div class="border rounded p-3 h-100">
                             <div class="fw-semibold text-truncate" title="@service.Hostname">@service.Hostname</div>
+                            <div class="small text-muted">Type: @(string.IsNullOrWhiteSpace(service.ServiceType) ? "N/A" : service.ServiceType)</div>
                             <div class="small text-muted">Version: @(string.IsNullOrWhiteSpace(service.AppVersion) ? "N/A" : service.AppVersion)</div>
                             <div class="small text-muted mb-2">Checks: @service.HealthyChecks/@service.TotalChecks</div>
                             <div class="progress" role="progressbar" aria-valuenow="@service.UptimePercent" aria-valuemin="0" aria-valuemax="100">
