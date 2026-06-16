@@ -1,0 +1,37 @@
+@page
+@model DeployFront.Pages.Kpi.IndexModel
+@{
+    ViewData["Title"] = "KPI";
+}
+
+<h2 class="mb-3">Monthly Uptime KPI by Region</h2>
+<p class="text-muted">Average uptime across all services per region (AU, US, EU), grouped by month.</p>
+
+@if (Model.Rows.Count == 0)
+{
+    <div class="alert alert-info">No KPI data available.</div>
+}
+else
+{
+    <table class="table table-bordered table-striped table-sm align-middle">
+        <thead>
+            <tr>
+                <th>Period</th>
+                <th>AU</th>
+                <th>US</th>
+                <th>EU</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in Model.Rows)
+            {
+                <tr>
+                    <td>@row.MonthLabel</td>
+                    <td>@(row.AU.HasValue ? $"{Math.Round(row.AU.Value, 2)}%" : "-")</td>
+                    <td>@(row.US.HasValue ? $"{Math.Round(row.US.Value, 2)}%" : "-")</td>
+                    <td>@(row.EU.HasValue ? $"{Math.Round(row.EU.Value, 2)}%" : "-")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
