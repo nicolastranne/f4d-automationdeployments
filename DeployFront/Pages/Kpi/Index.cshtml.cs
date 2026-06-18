@@ -54,13 +54,35 @@ namespace DeployFront.Pages.Kpi
                 })
                 .ToListAsync();
 
+            var monthlyExcludedOutageSeconds = await _db.Outages
+                .Where(o => o.excluded)
+                .GroupBy(o => new { o.serviceId, o.startTime.Year, o.startTime.Month })
+                .Select(g => new
+                {
+                    g.Key.serviceId,
+                    g.Key.Year,
+                    g.Key.Month,
+                    ExcludedSeconds = g.Sum(x => x.durationSeconds ?? 0)
+                })
+                .ToListAsync();
+
+            var excludedByServiceMonth = monthlyExcludedOutageSeconds
+                .ToDictionary(
+                    x => (x.serviceId, x.Year, x.Month),
+                    x => x.ExcludedSeconds);
+
             var perRegionMonth = monthlyByService
                 .Select(x => new
                 {
                     Region = serviceRegionById.TryGetValue(x.serviceId, out var region) ? region : null,
                     x.Year,
                     x.Month,
-                    Uptime = x.Total == 0 ? 0 : (x.Healthy * 100.0) / x.Total
+                    Uptime = CalculateAdjustedUptimePercent(
+                        x.Total,
+                        x.Healthy,
+                        excludedByServiceMonth.TryGetValue((x.serviceId, x.Year, x.Month), out var excludedSeconds)
+                            ? excludedSeconds
+                            : 0)
                 })
                 .Where(x => x.Region is "AU" or "US" or "EU")
                 .GroupBy(x => new { x.Region, x.Year, x.Month })
@@ -121,6 +143,21 @@ namespace DeployFront.Pages.Kpi
             if (vmName.StartsWith("neu", StringComparison.OrdinalIgnoreCase)) return "EU";
 
             return null;
+        }
+
+        private static double CalculateAdjustedUptimePercent(int totalChecks, int healthyChecks, int excludedOutageSeconds)
+        {
+            if (totalChecks <= 0)
+            {
+                return 0;
+            }
+
+            var unhealthyChecks = Math.Max(0, totalChecks - healthyChecks);
+            var estimatedExcludedChecks = Math.Max(0, (int)Math.Round(excludedOutageSeconds / 180.0, MidpointRounding.AwayFromZero));
+            var adjustedUnhealthyChecks = Math.Max(0, unhealthyChecks - estimatedExcludedChecks);
+            var adjustedHealthyChecks = totalChecks - adjustedUnhealthyChecks;
+
+            return (adjustedHealthyChecks * 100.0) / totalChecks;
         }
 
         public class RegionMonthlyKpiRow

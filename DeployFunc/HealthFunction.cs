@@ -106,7 +106,8 @@ namespace DeployFunc
                             isOngoing = true,
                             failureCount = 1,
                             lastUpdated = now,
-                            durationSeconds = 0
+                            durationSeconds = 0,
+                            reason = healthLog.errorMessage
                         });
                     }
                     else
@@ -114,6 +115,7 @@ namespace DeployFunc
                         ongoingOutage.failureCount += 1;
                         ongoingOutage.lastUpdated = now;
                         ongoingOutage.durationSeconds = (int)(now - ongoingOutage.startTime).TotalSeconds;
+                        ongoingOutage.reason = healthLog.errorMessage;
                         _db.Outages.Update(ongoingOutage);
                     }
                 }

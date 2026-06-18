@@ -32,6 +32,13 @@ namespace DeployFront.Pages.ServiceMap
         [Column("LastUpdated")]
         public DateTime lastUpdated { get; set; }
 
+        [Column("Reason")]
+        [MaxLength(1000)]
+        public string? reason { get; set; }
+
+        [Column("Excluded")]
+        public bool excluded { get; set; }
+
         [ForeignKey(nameof(serviceId))]
         public ServiceMap? ServiceMap { get; set; }
     }

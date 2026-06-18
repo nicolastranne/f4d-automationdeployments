@@ -27,9 +27,36 @@ else
             {
                 <tr>
                     <td>@row.MonthLabel</td>
-                    <td>@(row.AU.HasValue ? $"{Math.Round(row.AU.Value, 2)}%" : "-")</td>
-                    <td>@(row.US.HasValue ? $"{Math.Round(row.US.Value, 2)}%" : "-")</td>
-                    <td>@(row.EU.HasValue ? $"{Math.Round(row.EU.Value, 2)}%" : "-")</td>
+                    <td>
+                        @if (row.AU.HasValue)
+                        {
+                            <a asp-page="/Kpi/Outages" asp-route-year="@row.Year" asp-route-month="@row.Month" asp-route-region="AU">@($"{Math.Round(row.AU.Value, 2)}%")</a>
+                        }
+                        else
+                        {
+                            @("-")
+                        }
+                    </td>
+                    <td>
+                        @if (row.US.HasValue)
+                        {
+                            <a asp-page="/Kpi/Outages" asp-route-year="@row.Year" asp-route-month="@row.Month" asp-route-region="US">@($"{Math.Round(row.US.Value, 2)}%")</a>
+                        }
+                        else
+                        {
+                            @("-")
+                        }
+                    </td>
+                    <td>
+                        @if (row.EU.HasValue)
+                        {
+                            <a asp-page="/Kpi/Outages" asp-route-year="@row.Year" asp-route-month="@row.Month" asp-route-region="EU">@($"{Math.Round(row.EU.Value, 2)}%")</a>
+                        }
+                        else
+                        {
+                            @("-")
+                        }
+                    </td>
                 </tr>
             }
         </tbody>
