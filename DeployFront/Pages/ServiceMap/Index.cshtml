@@ -9,15 +9,24 @@
 {
     <div class="alert alert-info">@Model.ForceSyncMessage</div>
 }
+@* @if (Model.CanWrite)
+{
+    <div class="mb-2">
+        <a class="btn btn-outline-secondary btn-sm" href="?handler=AuthDiagnostics" target="_blank" rel="noopener noreferrer">Auth Diagnostics</a>
+    </div>
+} *@
 <form method="get" class="mb-3">
     <div class="input-group">
         <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by hostname, app name, or environment, VM, region, site, customer..." />
         <button type="submit" class="btn btn-outline-secondary">Search</button>
     </div>
 </form>
-<form method="post" asp-page-handler="ForceSync" class="mb-2">
-    <button type="submit" class="btn btn-primary">Force Sync</button>
-</form>
+@if (Model.CanWrite)
+{
+    <form method="post" asp-page-handler="ForceSync" class="mb-2">
+        <button type="submit" class="btn btn-primary">Force Sync</button>
+    </form>
+}
 <form id="antiForgeryForm" method="post" class="d-none">
     @Html.AntiForgeryToken()
 </form>
@@ -41,7 +50,10 @@
             <th>Site</th>
             <th>Notes</th>
             <th class="col-small">Region</th>
-            <th>Actions</th>
+            @if (Model.CanWrite)
+            {
+                <th>Actions</th>
+            }
         </tr>
     </thead>
     <tbody>
@@ -107,47 +119,50 @@
                     <td>@row.ServiceMap.site</td>
                     <td>@row.ServiceMap.notes</td>
                     <td>@row.Region</td>
-                    <td>
-                        <div class="d-flex flex-row gap-1 align-items-center text-center" style="font-size: 0.9rem;">
-                            <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            @{
-                                var st = row.ServiceMap.servicetype;
-                                var currentVersion = row.ServiceMap.appversion;
-                                var showUpgrade = false;
-                                if (string.Equals(st, "sesame", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    showUpgrade = true;
-                                }
-                                else if ((string.Equals(st, "iris", StringComparison.OrdinalIgnoreCase)
-                                        || string.Equals(st, "goline", StringComparison.OrdinalIgnoreCase)
-                                        || string.Equals(st, "ireport", StringComparison.OrdinalIgnoreCase))
-                                        && Model.AvailableVersions.TryGetValue(st ?? string.Empty, out var versionsForType)
-                                        && versionsForType != null
-                                        && versionsForType.Count > 0)
-                                {
-                                    showUpgrade = string.IsNullOrWhiteSpace(currentVersion)
-                                        || versionsForType.Any(v => !string.IsNullOrWhiteSpace(v)
-                                            && string.Compare(v, currentVersion, StringComparison.OrdinalIgnoreCase) > 0);
-                                }
-                            }
-                            @if (showUpgrade)
+            @if (Model.CanWrite)
+            {
+                <td>
+                    <div class="d-flex flex-row gap-1 align-items-center text-center" style="font-size: 0.9rem;">
+                        <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        @{
+                            var st = row.ServiceMap.servicetype;
+                            var currentVersion = row.ServiceMap.appversion;
+                            var showUpgrade = false;
+                            if (string.Equals(st, "sesame", StringComparison.OrdinalIgnoreCase))
                             {
-                                <button type="button" class="btn btn-sm btn-success p-1 upgrade-btn" title="Upgrade"
-                                    data-id="@row.ServiceMap.id"
-                                    data-servicetype="@row.ServiceMap.servicetype"
-                                    data-current-version="@row.ServiceMap.appversion"
-                                    data-ipaddr="@row.ServiceMap.ipaddr"
-                                    data-region="@row.Region"
-                                    data-instance="@row.ServiceMap.instance"
-                                    data-sqlhostname="@row.ServiceMap.sqlhostname"
-                                    data-dbname="@row.ServiceMap.dbname">
-                                    <i class="bi bi-upload"></i>
-                                </button>
+                                showUpgrade = true;
                             }
-                        </div>
-                    </td>
+                            else if ((string.Equals(st, "iris", StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(st, "goline", StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(st, "ireport", StringComparison.OrdinalIgnoreCase))
+                                    && Model.AvailableVersions.TryGetValue(st ?? string.Empty, out var versionsForType)
+                                    && versionsForType != null
+                                    && versionsForType.Count > 0)
+                            {
+                                showUpgrade = string.IsNullOrWhiteSpace(currentVersion)
+                                    || versionsForType.Any(v => !string.IsNullOrWhiteSpace(v)
+                                        && string.Compare(v, currentVersion, StringComparison.OrdinalIgnoreCase) > 0);
+                            }
+                        }
+                        @if (showUpgrade)
+                        {
+                            <button type="button" class="btn btn-sm btn-success p-1 upgrade-btn" title="Upgrade"
+                                data-id="@row.ServiceMap.id"
+                                data-servicetype="@row.ServiceMap.servicetype"
+                                data-current-version="@row.ServiceMap.appversion"
+                                data-ipaddr="@row.ServiceMap.ipaddr"
+                                data-region="@row.Region"
+                                data-instance="@row.ServiceMap.instance"
+                                data-sqlhostname="@row.ServiceMap.sqlhostname"
+                                data-dbname="@row.ServiceMap.dbname">
+                                <i class="bi bi-upload"></i>
+                            </button>
+                        }
+                    </div>
+                </td>
+            }
                 </tr>
             }
         }

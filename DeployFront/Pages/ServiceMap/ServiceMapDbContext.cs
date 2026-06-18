@@ -10,6 +10,7 @@ namespace DeployFront.Pages.ServiceMap
         public DbSet<ServiceVersion> ServiceVersions { get; set; }
         public DbSet<ServiceOutage> Outages { get; set; }
         public DbSet<ServiceHealthCheckLog> ServiceHealthCheckLogs { get; set; }
+        public DbSet<UpgradeActionLog> UpgradeActionLogs { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -17,6 +18,7 @@ namespace DeployFront.Pages.ServiceMap
             modelBuilder.Entity<VmIpMapping>().ToTable("VmIpMapping");
             modelBuilder.Entity<ServiceVersion>().ToTable("ServiceVersion");
             modelBuilder.Entity<ServiceOutage>().ToTable("ServiceOutages");
+            modelBuilder.Entity<UpgradeActionLog>().ToTable("UpgradeActionLogs");
             modelBuilder.Entity<ServiceOutage>()
                 .HasOne(o => o.ServiceMap)
                 .WithMany()

@@ -10,8 +10,10 @@ using DeployFunc;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 
 namespace DeployFront.Pages.ServiceMap
 {
@@ -21,6 +23,8 @@ namespace DeployFront.Pages.ServiceMap
         private readonly ServiceMapDbContext _db;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
+        private readonly IAuthorizationService _authorizationService;
+        private readonly ILogger<IndexModel> _logger;
         public List<ServiceMap> ServiceMaps { get; set; } = new();
 
         public List<ServiceMapWithVm> ServiceMapsWithVm { get; set; } = new();
@@ -34,15 +38,21 @@ namespace DeployFront.Pages.ServiceMap
         [TempData]
         public string? ForceSyncMessage { get; set; }
 
-        public IndexModel(ServiceMapDbContext db, IHttpClientFactory httpClientFactory, IConfiguration configuration)
+        public bool CanWrite { get; set; }
+
+        public IndexModel(ServiceMapDbContext db, IHttpClientFactory httpClientFactory, IConfiguration configuration, IAuthorizationService authorizationService, ILogger<IndexModel> logger)
         {
             _db = db;
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
+            _authorizationService = authorizationService;
+            _logger = logger;
         }
 
         public async Task OnGetAsync()
         {
+            CanWrite = (await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded;
+
             var allMaps = await _db.ServiceMaps.ToListAsync();
             var vmMappings = await _db.VmIpMappings
                 .Where(x => x.active)
@@ -101,6 +111,11 @@ namespace DeployFront.Pages.ServiceMap
 
         public async Task<IActionResult> OnPostForceSyncAsync()
         {
+            if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+            {
+                return Forbid();
+            }
+
             var baseUrl = _configuration["FunctionApp:BaseUrl"]?.TrimEnd('/');
             if (string.IsNullOrWhiteSpace(baseUrl))
             {
@@ -142,6 +157,9 @@ namespace DeployFront.Pages.ServiceMap
         [IgnoreAntiforgeryToken]
         public async Task<IActionResult> OnPostEditFieldsAsync([FromBody] EditFieldsModel model)
         {
+            if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+                return new JsonResult(new { success = false, error = "Forbidden" }) { StatusCode = StatusCodes.Status403Forbidden };
+
             if (model == null)
                 return new JsonResult(new { success = false, error = "Invalid data" });
             var entity = await _db.ServiceMaps.FirstOrDefaultAsync(x => x.id == model.id);
@@ -158,6 +176,9 @@ namespace DeployFront.Pages.ServiceMap
         [IgnoreAntiforgeryToken]
         public async Task<IActionResult> OnPostUpgradeAsync([FromBody] UpgradeRequestModel model)
         {
+            if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+                return new JsonResult(new { success = false, error = "Forbidden" }) { StatusCode = StatusCodes.Status403Forbidden };
+
             if (model == null
                 || model.id <= 0
                 || string.IsNullOrWhiteSpace(model.serviceType)
@@ -178,6 +199,10 @@ namespace DeployFront.Pages.ServiceMap
             if (string.IsNullOrWhiteSpace(baseUrl))
                 return new JsonResult(new { success = false, error = "Function App URL is not configured." });
 
+            var token = await GetFunctionAppAccessTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+                return new JsonResult(new { success = false, error = "Function App scope/client ID is not configured." });
+
             var client = _httpClientFactory.CreateClient();
             var payload = new
             {
@@ -190,8 +215,44 @@ namespace DeployFront.Pages.ServiceMap
                 ForceDownload = model.forceDownload
             };
 
-            var response = await client.PostAsJsonAsync($"{baseUrl}/trigger-runbook-f4dupdateservices", payload);
+            var requestUrl = $"{baseUrl}/trigger-runbook-f4dupdateservices";
+            var requestBody = JsonSerializer.Serialize(payload);
+
+            async Task LogUpgradeActionAsync(int? statusCode, string? resultBody)
+            {
+                _db.UpgradeActionLogs.Add(new UpgradeActionLog
+                {
+                    requestUrl = requestUrl,
+                    requestType = HttpMethod.Post.Method,
+                    requestBody = requestBody,
+                    result = resultBody,
+                    statusCode = statusCode,
+                    createdAt = DateTime.UtcNow
+                });
+
+                await _db.SaveChangesAsync();
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl)
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await client.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
+            await LogUpgradeActionAsync((int)response.StatusCode, body);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                return new JsonResult(new
+                {
+                    success = false,
+                    error = "Unauthorized to call Function App.",
+                    details = body,
+                    hint = "Set FunctionApp:Scope to the exact API audience/.default expected by Function App auth (for example api://<function-app-app-registration-client-id>/.default)."
+                });
+            }
 
             if (!response.IsSuccessStatusCode)
             {
@@ -221,6 +282,83 @@ namespace DeployFront.Pages.ServiceMap
                 success = true,
                 message = "Runbook trigger submitted.",
                 runbookResponse = responseData
+            });
+        }
+
+        public async Task<IActionResult> OnGetAuthDiagnosticsAsync()
+        {
+            if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+                return Forbid();
+
+            var scope = _configuration["FunctionApp:Scope"];
+            if (string.IsNullOrWhiteSpace(scope))
+            {
+                var clientId = _configuration["FunctionApp:ClientID"] ?? _configuration["FunctionApp:ClientId"];
+                scope = string.IsNullOrWhiteSpace(clientId) ? null : $"api://{clientId}/.default";
+            }
+
+            if (string.IsNullOrWhiteSpace(scope))
+            {
+                return new JsonResult(new
+                {
+                    success = false,
+                    error = "FunctionApp:Scope or FunctionApp:ClientID is missing."
+                });
+            }
+
+            var diagnostics = new List<object>();
+            AccessToken? acquired = null;
+
+            async Task TryCredentialAsync(string name, TokenCredential credential)
+            {
+                try
+                {
+                    var token = await credential.GetTokenAsync(new TokenRequestContext(new[] { scope! }), default);
+                    diagnostics.Add(new { credential = name, success = true, expiresOn = token.ExpiresOn });
+                    acquired ??= token;
+                }
+                catch (Exception ex)
+                {
+                    diagnostics.Add(new { credential = name, success = false, error = ex.Message });
+                }
+            }
+
+            await TryCredentialAsync("EnvironmentCredential", new EnvironmentCredential());
+            await TryCredentialAsync("ManagedIdentityCredential", new ManagedIdentityCredential());
+            await TryCredentialAsync("VisualStudioCredential", new VisualStudioCredential());
+            await TryCredentialAsync("AzureCliCredential", new AzureCliCredential());
+            await TryCredentialAsync("AzurePowerShellCredential", new AzurePowerShellCredential());
+
+            string? aud = null;
+            string? tid = null;
+            if (acquired.HasValue)
+            {
+                try
+                {
+                    var parts = acquired.Value.Token.Split('.');
+                    if (parts.Length >= 2)
+                    {
+                        var payload = parts[1].Replace('-', '+').Replace('_', '/');
+                        var padding = 4 - (payload.Length % 4);
+                        if (padding < 4) payload += new string('=', padding);
+                        var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("aud", out var audProp)) aud = audProp.GetString();
+                        if (doc.RootElement.TryGetProperty("tid", out var tidProp)) tid = tidProp.GetString();
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return new JsonResult(new
+            {
+                success = acquired.HasValue,
+                requestedScope = scope,
+                tokenAudience = aud,
+                tenantId = tid,
+                credentials = diagnostics
             });
         }
 
@@ -259,51 +397,34 @@ namespace DeployFront.Pages.ServiceMap
 
         private async Task<string?> GetFunctionAppAccessTokenAsync()
         {
-
             try
             {
-                var credential = new DefaultAzureCredential(
-                    new DefaultAzureCredentialOptions
-                    {
-                        ExcludeVisualStudioCredential = true,
-                        ExcludeManagedIdentityCredential = true,
-                    });
-                var clientId = _configuration["FunctionApp:ClientID"];
+                var scope = _configuration["FunctionApp:Scope"];
+                if (string.IsNullOrWhiteSpace(scope))
+                {
+                    var clientId = _configuration["FunctionApp:ClientID"] ?? _configuration["FunctionApp:ClientId"];
                     if (string.IsNullOrWhiteSpace(clientId))
                     {
                         return null;
                     }
+
+                    scope = $"api://{clientId}/.default";
+                }
+
+                var credential = new DefaultAzureCredential();
                 var token = await credential.GetTokenAsync(
                     new TokenRequestContext(new[]
                     {
-                $"api://{clientId}/.default"
+                        scope
                     }));
 
                 return token.Token;
             }
             catch (Exception ex)
             {
-                // Optional logging
-                Console.WriteLine(ex.ToString());
+                _logger.LogError(ex, "Failed to acquire Function App access token.");
                 return null;
             }
-
-
-            //var scope = _configuration["FunctionApp:Scope"];
-            //if (string.IsNullOrWhiteSpace(scope))
-            //{
-            //    var clientId = _configuration["FunctionApp:ClientID"];
-            //    if (string.IsNullOrWhiteSpace(clientId))
-            //    {
-            //        return null;
-            //    }
-
-            //    scope = $"api://{clientId}/.default";
-            //}
-
-            //var credential = new DefaultAzureCredential();
-            //var accessToken = await credential.GetTokenAsync(new TokenRequestContext(new[] { scope }));
-            //return accessToken.Token;
         }
     }
 }

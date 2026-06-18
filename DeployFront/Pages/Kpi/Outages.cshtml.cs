@@ -2,12 +2,14 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using DeployFront.Pages.ServiceMap;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace DeployFront.Pages.Kpi
 {
     public class OutagesModel : PageModel
     {
         private readonly ServiceMapDbContext _db;
+        private readonly IAuthorizationService _authorizationService;
 
         public string Region { get; set; } = string.Empty;
         public string PeriodLabel { get; set; } = string.Empty;
@@ -16,9 +18,12 @@ namespace DeployFront.Pages.Kpi
         [TempData]
         public string? SaveMessage { get; set; }
 
-        public OutagesModel(ServiceMapDbContext db)
+        public bool CanWrite { get; set; }
+
+        public OutagesModel(ServiceMapDbContext db, IAuthorizationService authorizationService)
         {
             _db = db;
+            _authorizationService = authorizationService;
         }
 
         public async Task OnGetAsync(int year, int month, string region)
@@ -37,6 +42,7 @@ namespace DeployFront.Pages.Kpi
             var start = new DateTime(year, month, 1);
             var end = start.AddMonths(1);
             PeriodLabel = start.ToString("MMMM yyyy");
+            CanWrite = (await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded;
 
             var activeVmMappings = await _db.VmIpMappings
                 .Where(x => x.active)
@@ -91,6 +97,11 @@ namespace DeployFront.Pages.Kpi
 
         public async Task<IActionResult> OnPostUpdateReasonAsync(long outageId, string? reason, int year, int month, string region)
         {
+            if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+            {
+                return Forbid();
+            }
+
             var outage = await _db.Outages.FirstOrDefaultAsync(o => o.id == outageId);
             if (outage != null)
             {
@@ -109,6 +120,11 @@ namespace DeployFront.Pages.Kpi
 
         public async Task<IActionResult> OnPostToggleExcludeAsync(long outageId, bool excluded, int year, int month, string region)
         {
+            if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+            {
+                return Forbid();
+            }
+
             var outage = await _db.Outages.FirstOrDefaultAsync(o => o.id == outageId);
             if (outage != null)
             {

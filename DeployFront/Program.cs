@@ -14,7 +14,13 @@ var webApplicationOptions = new WebApplicationOptions
 
 var builder = WebApplication.CreateBuilder(webApplicationOptions);
 builder.Host.UseWindowsService();
-var requiredGroupId = builder.Configuration["Authorization:RequiredGroupId"]?.Trim();
+var writeGroupId = builder.Configuration["Authorization:WriteGroupId"]?.Trim();
+if (string.IsNullOrWhiteSpace(writeGroupId))
+{
+    writeGroupId = builder.Configuration["Authorization:RequiredGroupId"]?.Trim();
+}
+
+var readOnlyGroupId = builder.Configuration["Authorization:ReadOnlyGroupId"]?.Trim();
 var host = builder.Configuration["Hosting:Host"]?.Trim();
 var port = builder.Configuration.GetValue<int?>("Hosting:Port") ?? 7010;
 var aspNetCoreUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
@@ -24,9 +30,9 @@ if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(aspNetCore
     builder.WebHost.UseUrls($"http://{(string.IsNullOrWhiteSpace(host) ? "localhost" : host)}:{port}");
 }
 
-if (string.IsNullOrWhiteSpace(requiredGroupId))
+if (string.IsNullOrWhiteSpace(writeGroupId))
 {
-    throw new InvalidOperationException("Authorization:RequiredGroupId is not configured.");
+    throw new InvalidOperationException("Authorization:WriteGroupId (or Authorization:RequiredGroupId) is not configured.");
 }
 
 // Add services to the container.
@@ -40,27 +46,37 @@ builder.Services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.Authentic
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("RequireF4DAutomationGroup", policy =>
+    static bool HasGroupClaim(System.Security.Claims.ClaimsPrincipal user, string groupId)
+    {
+        var groupClaimTypes = new[]
+        {
+            "groups",
+            "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups"
+        };
+
+        return user.Claims.Any(c =>
+            groupClaimTypes.Contains(c.Type, StringComparer.OrdinalIgnoreCase)
+            && string.Equals(c.Value?.Trim(), groupId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    options.AddPolicy("CanWrite", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireAssertion(context => HasGroupClaim(context.User, writeGroupId!));
+    });
+
+    options.AddPolicy("CanRead", policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.RequireAssertion(context =>
-        {
-            var groupClaimTypes = new[]
-            {
-                "groups",
-                "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups"
-            };
-
-            return context.User.Claims.Any(c =>
-                groupClaimTypes.Contains(c.Type, StringComparer.OrdinalIgnoreCase)
-                && string.Equals(c.Value?.Trim(), requiredGroupId, StringComparison.OrdinalIgnoreCase));
-        });
+            HasGroupClaim(context.User, writeGroupId!)
+            || (!string.IsNullOrWhiteSpace(readOnlyGroupId) && HasGroupClaim(context.User, readOnlyGroupId!)));
     });
 });
 
 builder.Services.AddRazorPages(options =>
 {
-    options.Conventions.AuthorizeFolder("/", "RequireF4DAutomationGroup");
+    options.Conventions.AuthorizeFolder("/", "CanRead");
 });
 builder.Services.AddHttpClient();
 // Register EF Core DbContext

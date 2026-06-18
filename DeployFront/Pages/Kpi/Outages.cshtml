@@ -28,7 +28,10 @@ else
                 <th>Failure Count</th>
                 <th>Status</th>
                 <th>Reason</th>
-                <th>Exclude</th>
+                @if (Model.CanWrite)
+                {
+                    <th>Exclude</th>
+                }
                 
             </tr>
         </thead>
@@ -44,26 +47,36 @@ else
                     <td>@row.FailureCount</td>
                     <td>@(row.IsOngoing ? "Ongoing" : "Resolved")</td>
                     <td>
-                        <form method="post" asp-page-handler="UpdateReason" class="d-flex gap-2 align-items-center">
-                            <input type="hidden" name="outageId" value="@row.OutageId" />
-                            <input type="hidden" name="year" value="@Request.Query["year"]" />
-                            <input type="hidden" name="month" value="@Request.Query["month"]" />
-                            <input type="hidden" name="region" value="@Model.Region" />
-                            <input type="text" name="reason" value="@row.Reason" class="form-control form-control-sm" maxlength="1000" />
-                            <button type="submit" class="btn btn-sm btn-primary">Save</button>
-                        </form>
+                        @if (Model.CanWrite)
+                        {
+                            <form method="post" asp-page-handler="UpdateReason" class="d-flex gap-2 align-items-center">
+                                <input type="hidden" name="outageId" value="@row.OutageId" />
+                                <input type="hidden" name="year" value="@Request.Query["year"]" />
+                                <input type="hidden" name="month" value="@Request.Query["month"]" />
+                                <input type="hidden" name="region" value="@Model.Region" />
+                                <input type="text" name="reason" value="@row.Reason" class="form-control form-control-sm" maxlength="1000" />
+                                <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                            </form>
+                        }
+                        else
+                        {
+                            @row.Reason
+                        }
                     </td>
-                    <td>
-                        <form method="post" asp-page-handler="ToggleExclude" class="d-flex align-items-center gap-2">
-                            <input type="hidden" name="outageId" value="@row.OutageId" />
-                            <input type="hidden" name="year" value="@Request.Query["year"]" />
-                            <input type="hidden" name="month" value="@Request.Query["month"]" />
-                            <input type="hidden" name="region" value="@Model.Region" />
-                            <input type="hidden" name="excluded" value="@(row.Excluded ? "false" : "true")" />
-                            <span class="badge @(row.Excluded ? "bg-secondary" : "bg-success")">@(row.Excluded ? "Excluded" : "Included")</span>
-                            <button type="submit" class="btn btn-sm btn-outline-secondary">@(row.Excluded ? "Include" : "Exclude")</button>
-                        </form>
-                    </td>
+                    @if (Model.CanWrite)
+                    {
+                        <td>
+                            <form method="post" asp-page-handler="ToggleExclude" class="d-flex align-items-center gap-2">
+                                <input type="hidden" name="outageId" value="@row.OutageId" />
+                                <input type="hidden" name="year" value="@Request.Query["year"]" />
+                                <input type="hidden" name="month" value="@Request.Query["month"]" />
+                                <input type="hidden" name="region" value="@Model.Region" />
+                                <input type="hidden" name="excluded" value="@(row.Excluded ? "false" : "true")" />
+                                <span class="badge @(row.Excluded ? "bg-secondary" : "bg-success")">@(row.Excluded ? "Excluded" : "Included")</span>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">@(row.Excluded ? "Include" : "Exclude")</button>
+                            </form>
+                        </td>
+                    }
                  
                 </tr>
             }
