@@ -22,10 +22,32 @@ else
             <tr>
                 <th>Hostname</th>
                 <th>Service Type</th>
-                <th>Start</th>
+                
+                <th>
+                    <a asp-route-year="@Model.Year"
+                           asp-route-month="@Model.Month"
+                           asp-route-region="@Model.Region"
+                     asp-route-sort="@(Model.CurrentSort == "start_desc" ? "start_asc" : "start_desc")">
+                        Start Time
+                    </a>
+                </th>
+
+
                 <th>End</th>
                 <th>Duration (s)</th>
-                <th>Failure Count</th>
+                @* <th>Failure Count</th> *@
+                
+                <th>
+                    <a asp-route-year="@Model.Year"
+                           asp-route-month="@Model.Month"
+                           asp-route-region="@Model.Region"
+                           asp-route-sort="@(Model.CurrentSort == "failure_desc" ? "failure_asc" : "failure_desc")">
+                        Failure Count
+                    </a>
+                </th>
+
+
+
                 <th>Status</th>
                 <th>Reason</th>
                 @if (Model.CanWrite)

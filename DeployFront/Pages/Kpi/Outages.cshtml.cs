@@ -26,8 +26,20 @@ namespace DeployFront.Pages.Kpi
             _authorizationService = authorizationService;
         }
 
-        public async Task OnGetAsync(int year, int month, string region)
+        public string CurrentSort { get; set; } = "";
+
+        public int Year { get; set; }
+        public int Month { get; set; }
+
+
+        public async Task OnGetAsync(int year, int month, string region, string? sort)
         {
+            CurrentSort = sort ?? "";
+
+            Year = year;
+            Month = month;
+
+
             if (year <= 0 || month is < 1 or > 12 || string.IsNullOrWhiteSpace(region))
             {
                 return;
@@ -50,6 +62,7 @@ namespace DeployFront.Pages.Kpi
 
             var services = await _db.ServiceMaps
                 .Where(s => s.active)
+                .Where(s=>!s.excludefromstats)
                 .Select(s => new { s.id, s.hostname, s.ipaddr, s.servicetype })
                 .ToListAsync();
 
@@ -63,12 +76,23 @@ namespace DeployFront.Pages.Kpi
                 return;
             }
 
-            var outages = await _db.Outages
+            var query = _db.Outages //await
                 .Where(o => serviceIdsInRegion.Contains(o.serviceId)
                     && o.startTime >= start
-                    && o.startTime < end)
-                .OrderByDescending(o => o.startTime)
-                .ToListAsync();
+                    && o.startTime < end);
+            //.OrderByDescending(o => o.startTime)
+            //.ToListAsync();
+
+            query = sort switch
+            {
+                "failure_desc" => query.OrderByDescending(o => o.failureCount),
+                "failure_asc" => query.OrderBy(o => o.failureCount),
+                "start_desc" => query.OrderByDescending(o => o.startTime),
+                "start_asc" => query.OrderBy(o => o.startTime),
+                _ => query.OrderByDescending(o => o.startTime) // default
+            };
+
+            var outages = await query.ToListAsync();
 
             var serviceById = services.ToDictionary(s => s.id, s => s);
 
@@ -92,6 +116,8 @@ namespace DeployFront.Pages.Kpi
                         Excluded = o.excluded
                     };
                 })
+                //.OrderByDescending(x => x.FailureCount)
+                //.ThenByDescending(x => x.StartTime)
                 .ToList();
         }
 

@@ -23,6 +23,7 @@ namespace DeployFront.Pages.Kpi
 
             var services = await _db.ServiceMaps
                 .Where(s => s.active)
+                .Where(s => !s.excludefromstats)
                 .Select(s => new { s.id, s.ipaddr })
                 .ToListAsync();
 

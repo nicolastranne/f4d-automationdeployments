@@ -103,6 +103,7 @@ namespace DeployFront.Pages.ServiceMap
                     || (x.Region.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase))
                     || (x.ServiceMap.customer?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
                     || (x.ServiceMap.site?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (x.ServiceMap.port.ToString().Contains(SearchTerm, StringComparison.OrdinalIgnoreCase))
                 )
                 .OrderBy(x => x.ServiceMap.customer)
                 .ThenBy(x => x.ServiceMap.hostname)
@@ -169,6 +170,7 @@ namespace DeployFront.Pages.ServiceMap
             entity.site = model.site;
             entity.irishostname = model.irishostname;
             entity.notes = model.notes;
+            entity.active = model.active;
             await _db.SaveChangesAsync();
             return new JsonResult(new { success = true });
         }
@@ -369,6 +371,7 @@ namespace DeployFront.Pages.ServiceMap
             public string? site { get; set; }
             public string? irishostname { get; set; }
             public string? notes { get; set; }
+            public bool active { get; set; }
         }
 
         public class UpgradeRequestModel

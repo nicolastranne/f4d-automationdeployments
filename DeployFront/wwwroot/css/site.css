@@ -63,3 +63,7 @@ td .btn {
 .group-divider {
     border-right: 2px solid #ddd;
 }
+
+.service-map-row-inactive > td {
+    background-color: #D4BC96 !important; /* light green */
+}

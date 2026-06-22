@@ -47,5 +47,7 @@ namespace DeployFront.Pages.ServiceMap
         public string? dbname { get; set; }
         [MaxLength(100)]
         public string? irishostname { get; set; }
+        [Required]
+        public bool excludefromstats { get; set; }
     }
 }
