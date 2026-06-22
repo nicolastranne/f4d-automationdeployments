@@ -17,6 +17,7 @@
 }
 else
 {
+    <form method="post" asp-page-handler="BulkUpdate"
     <table class="table table-bordered table-striped table-sm align-middle">
         <thead>
             <tr>
@@ -28,12 +29,12 @@ else
                            asp-route-month="@Model.Month"
                            asp-route-region="@Model.Region"
                      asp-route-sort="@(Model.CurrentSort == "start_desc" ? "start_asc" : "start_desc")">
-                        Start Time
-                    </a>
+                        Start Time UTC
+                    </a><i class="bi bi-arrow-down-up"></i>
                 </th>
 
 
-                <th>End</th>
+                <th>End UTC</th>
                 <th>Duration (s)</th>
                 @* <th>Failure Count</th> *@
                 
@@ -43,7 +44,7 @@ else
                            asp-route-region="@Model.Region"
                            asp-route-sort="@(Model.CurrentSort == "failure_desc" ? "failure_asc" : "failure_desc")">
                         Failure Count
-                    </a>
+                    </a><i class="bi bi-arrow-down-up"></i>
                 </th>
 
 
@@ -77,7 +78,11 @@ else
                                 <input type="hidden" name="month" value="@Request.Query["month"]" />
                                 <input type="hidden" name="region" value="@Model.Region" />
                                 <input type="text" name="reason" value="@row.Reason" class="form-control form-control-sm" maxlength="1000" />
-                                <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                                
+                                <button type="submit" class="btn btn-sm btn-primary" title="Save">
+                                    <i class="bi bi-save"></i>
+                                </button>
+
                             </form>
                         }
                         else
@@ -94,7 +99,11 @@ else
                                 <input type="hidden" name="month" value="@Request.Query["month"]" />
                                 <input type="hidden" name="region" value="@Model.Region" />
                                 <input type="hidden" name="excluded" value="@(row.Excluded ? "false" : "true")" />
-                                <span class="badge @(row.Excluded ? "bg-secondary" : "bg-success")">@(row.Excluded ? "Excluded" : "Included")</span>
+                                
+                                <span title="@(row.Excluded ? "Excluded" : "Included")">
+                                    <i class="bi @(row.Excluded ? "bi-x-circle-fill text-secondary" : "bi-check-circle-fill text-success")"></i>
+                                </span>
+
                                 <button type="submit" class="btn btn-sm btn-outline-secondary">@(row.Excluded ? "Include" : "Exclude")</button>
                             </form>
                         </td>
@@ -104,6 +113,7 @@ else
             }
         </tbody>
     </table>
+    </form>
 }
 
 <a asp-page="/Kpi/Index" class="btn btn-outline-secondary">Back to KPI</a>

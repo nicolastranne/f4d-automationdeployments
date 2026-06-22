@@ -65,5 +65,8 @@ td .btn {
 }
 
 .service-map-row-inactive > td {
-    background-color: #D4BC96 !important; /* light green */
+    opacity: 0.5; /* Fades out the row text and content */
+    background-color: #f0f0f0; /* Gives the row a light grey background */
+    color: #888888; /* Turns the text color to muted grey */
+    user-select: none; /* Prevents users from highlighting text */
 }
