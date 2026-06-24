@@ -102,6 +102,19 @@
                         }
 
                         <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
+
+                        @if (row.ServiceMap.excludefromstats)
+                        {
+                            <i class="bi bi-bar-chart-line-fill text-secondary ms-1"
+                               title="Excluded from stats"
+                               aria-label="Excluded from stats"></i>
+                        }
+                        else
+                        {
+                                <i class="bi bi-bar-chart-line-fill text-success ms-1"
+                                   title="Included from stats"
+                                   aria-label="Included in stats"></i>
+                            }
                     </td>
                     <td>@row.VMName</td>
                     <td>@row.ServiceMap.ipaddr</td>
@@ -123,7 +136,7 @@
             {
                 <td>
                     <div class="d-flex flex-row gap-1 align-items-center text-center" style="font-size: 0.9rem;">
-                        <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-active="@row.ServiceMap.active" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
+                        <button type="button" class="btn btn-sm btn-warning edit-btn p-1" title="Edit" data-id="@row.ServiceMap.id" data-customer="@row.ServiceMap.customer" data-site="@row.ServiceMap.site" data-notes="@row.ServiceMap.notes" data-active="@row.ServiceMap.active" data-excludefromstats="@row.ServiceMap.excludefromstats" data-hostname="@row.ServiceMap.hostname" data-irishostname="@row.ServiceMap.irishostname">
                             <i class="bi bi-pencil"></i>
                         </button>
                         @{
@@ -215,6 +228,17 @@
                         </label>
                     </div>
 
+                    <div class="form-check mb-3">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               id="edit-excludefromstats"
+                               name="excludefromstats"
+                               value="true">
+                        <label class="form-check-label" for="edit-excludefromstats">
+                            Exclude from stats
+                        </label>
+                    </div>
+
         </form>
       </div>
       <div class="modal-footer">
@@ -290,6 +314,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var editIrisHostname = document.getElementById('edit-irishostname');
     var editNotes = document.getElementById('edit-notes');
     var editActive = document.getElementById('edit-active');
+    var editExcludeFromStats = document.getElementById('edit-excludefromstats');
     var editHostname = document.getElementById('edit-hostname');
     var saveBtn = document.getElementById('saveEditBtn');
     var upgradeId = document.getElementById('upgrade-id');
@@ -320,6 +345,8 @@ document.addEventListener('DOMContentLoaded', function() {
             editNotes.value = btn.getAttribute('data-notes') || '';
             var activeAttr = (btn.getAttribute('data-active') || '').toLowerCase();
             editActive.checked = activeAttr === 'true';
+            var excludeFromStatsAttr = (btn.getAttribute('data-excludefromstats') || '').toLowerCase();
+            editExcludeFromStats.checked = excludeFromStatsAttr === 'true';
             editHostname.value = btn.getAttribute('data-hostname') || '';
             editModal.show();
         });
@@ -375,7 +402,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 site: editSite.value,
                 irishostname: editIrisHostname.value,
                 notes: editNotes.value,
-                active: editActive.checked
+                active: editActive.checked,
+                excludefromstats: editExcludeFromStats.checked
             })
         })
         .then(async r => {

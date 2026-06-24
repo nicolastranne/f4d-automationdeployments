@@ -171,6 +171,7 @@ namespace DeployFront.Pages.ServiceMap
             entity.irishostname = model.irishostname;
             entity.notes = model.notes;
             entity.active = model.active;
+            entity.excludefromstats = model.excludefromstats;
             await _db.SaveChangesAsync();
             return new JsonResult(new { success = true });
         }
@@ -372,6 +373,7 @@ namespace DeployFront.Pages.ServiceMap
             public string? irishostname { get; set; }
             public string? notes { get; set; }
             public bool active { get; set; }
+            public bool excludefromstats { get; set; }
         }
 
         public class UpgradeRequestModel
