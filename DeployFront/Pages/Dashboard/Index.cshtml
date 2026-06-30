@@ -52,14 +52,15 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+@*     <div class="col-md-3">
         <div class="card text-bg-warning h-100">
             <div class="card-body">
                 <h6 class="card-title">Unhealthy Checks (1h)</h6>
                 <h3 class="mb-0">@Model.UnhealthyChecksLastHour</h3>
             </div>
         </div>
-    </div>
+    </div> *@
+
     <div class="col-md-3">
         <div class="card text-bg-success h-100">
             <div class="card-body">
@@ -67,6 +68,16 @@
                 <h3 class="mb-0">@Math.Round(Model.AverageResponseMsLastHour, 0) ms</h3>
             </div>
         </div>
+    </div>
+    <div class="col-md-3">
+        <a asp-page="/Dashboard/Index" asp-route-SearchTerm="@Model.SearchTerm" asp-route-OutagesOnly="@Model.OutagesOnly" asp-route-ServiceTypeFilter="icontrol" class="text-decoration-none text-reset d-block">
+            <div class="card h-100 border-secondary" style="cursor:pointer;">
+                <div class="card-body">
+                    <h6 class="card-title mb-1">iControl</h6>
+                    <h4 class="mb-0">@Model.IcontrolServiceCount</h4>
+                </div>
+            </div>
+        </a>
     </div>
 </div>
 
@@ -111,6 +122,7 @@
         </div>
         </a>
     </div>
+   
 </div>
 
 <div class="card">

@@ -1,7 +1,8 @@
+using Azure.Core;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
-using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -12,9 +13,10 @@ namespace DeployFunc
     {
         private readonly ILogger<HealthFunction> _logger;
         private readonly ServiceMapDbContext _db;
+        private static readonly TimeSpan HealthCheckTimeout = TimeSpan.FromSeconds(5);
         private static readonly HttpClient _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(10)
+            Timeout = HealthCheckTimeout
         };
 
         public HealthFunction(ILogger<HealthFunction> logger, ServiceMapDbContext db)
@@ -23,39 +25,20 @@ namespace DeployFunc
             _db = db;
         }
 
-        [Function("RunIrisServiceHealthChecks")]
-        public async Task RunIrisServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
-        {
-            await RunServiceHealthChecksByTypeAsync("iris");
-        }
-
-        [Function("RunIreportServiceHealthChecks")]
-        public async Task RunIreportServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
-        {
-            await RunServiceHealthChecksByTypeAsync("ireport");
-        }
-
-        [Function("RunGolineServiceHealthChecks")]
-        public async Task RunGolineServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
-        {
-            await RunServiceHealthChecksByTypeAsync("goline");
-        }
-
-        [Function("RunSesameServiceHealthChecks")]
-        public async Task RunSesameServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
-        {
-            await RunServiceHealthChecksByTypeAsync("sesame");
-        }
-
-        private async Task RunServiceHealthChecksByTypeAsync(string serviceType)
+        [Function("RunAllServiceHealthChecks")]
+        public async Task RunAllServiceHealthChecks([TimerTrigger("0 */3 * * * *")] TimerInfo timer)
         {
             var now = DateTime.UtcNow;
+            var trackedServiceTypes = new[] { "iris", "ireport", "goline", "sesame", "icontrol" };
 
             var services = await _db.ServiceMaps
-                .Where(x => x.active && x.servicetype == serviceType && x.ipaddr != null)
+                .Where(x => x.active
+                    && x.ipaddr != null
+                    && x.servicetype != null
+                    && trackedServiceTypes.Contains(x.servicetype.ToLower()))
                 .ToListAsync();
 
-            foreach (var service in services)
+            var healthCheckResults = await Task.WhenAll(services.Select(async service =>
             {
                 var healthLog = new ServiceHealthCheckLog
                 {
@@ -67,10 +50,19 @@ namespace DeployFunc
                 try
                 {
                     var protocol = string.IsNullOrWhiteSpace(service.protocol) ? "http" : service.protocol;
-                    var url = $"{protocol}://{service.hostname}";///live/server".Replace("iris", "icontrol");
+                    var url = $"{protocol}://{service.hostname}";
+                    var normalizedServiceType = (service.servicetype ?? string.Empty).ToLowerInvariant();
+                    if (normalizedServiceType == "icontrol")
+                        url = $"{url}/live/server";
+
                     Console.WriteLine($"Checking health for service {service.id} at {url}");
                     var sw = Stopwatch.StartNew();
-                    var response = await _httpClient.GetAsync(url);
+
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Special-Agent", @"-\\_(-_-)_/-");
+                    using var cts = new CancellationTokenSource(HealthCheckTimeout);
+                    using var response = await _httpClient.SendAsync(request, cts.Token);
+
                     sw.Stop();
 
                     healthLog.statusCode = (int)response.StatusCode;
@@ -87,6 +79,14 @@ namespace DeployFunc
                     healthLog.isHealthy = false;
                     healthLog.errorMessage = ex.Message;
                 }
+
+                return (service, healthLog);
+            }));
+
+            foreach (var result in healthCheckResults)
+            {
+                var service = result.service;
+                var healthLog = result.healthLog;
 
                 _db.ServiceHealthCheckLogs.Add(healthLog);
 
@@ -138,7 +138,7 @@ namespace DeployFunc
             }
 
             await _db.SaveChangesAsync();
-            _logger.LogInformation("Health check cycle completed for {ServiceCount} {ServiceType} services.", services.Count, serviceType);
+            _logger.LogInformation("Health check cycle completed for {ServiceCount} services.", services.Count);
         }
     }
 }

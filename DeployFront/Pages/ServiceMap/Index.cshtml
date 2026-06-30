@@ -9,6 +9,7 @@
 {
     <div class="alert alert-info">@Model.ForceSyncMessage</div>
 }
+<div id="saveNotification" class="alert d-none" role="alert"></div>
 @* @if (Model.CanWrite)
 {
     <div class="mb-2">
@@ -16,9 +17,30 @@
     </div>
 } *@
 <form method="get" class="mb-3">
-    <div class="input-group">
-        <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by hostname, app name, or environment, VM, region, site, customer..." />
-        <button type="submit" class="btn btn-outline-secondary">Search</button>
+    <div class="row g-2 align-items-end">
+        <div class="col-md-6">
+            <label for="searchTerm" class="form-label">Search</label>
+            <input id="searchTerm" type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by hostname, app name, environment, VM, region, site, customer, or port..." />
+        </div>
+        <div class="col-md-2">
+            <label for="statusFilter" class="form-label">Active/Inactive</label>
+            <select id="statusFilter" name="StatusFilter" class="form-select">
+                <option value="all" selected="@(Model.StatusFilter == "all")">All</option>
+                <option value="active" selected="@(Model.StatusFilter == "active")">Active</option>
+                <option value="inactive" selected="@(Model.StatusFilter == "inactive")">Inactive</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="statsFilter" class="form-label">Included/Excluded from stats</label>
+            <select id="statsFilter" name="StatsFilter" class="form-select">
+                <option value="all" selected="@(Model.StatsFilter == "all")">All</option>
+                <option value="included" selected="@(Model.StatsFilter == "included")">Included</option>
+                <option value="excluded" selected="@(Model.StatsFilter == "excluded")">Excluded</option>
+            </select>
+        </div>
+        <div class="col-md-2 d-grid">
+            <button type="submit" class="btn btn-outline-secondary">Apply</button>
+        </div>
     </div>
 </form>
 @if (Model.CanWrite)
@@ -40,7 +62,7 @@
             <th class="col-small">Port</th>
             @* <th>App Name</th> *@
             <th>App Version</th>
-            <th>Environment</th>
+            @* <th>Environment</th> *@
             <th>Service Type</th>
             <th>Instance</th>
             <th class="col-sql">SQL Hostname</th>
@@ -101,7 +123,7 @@
                             }
                         }
 
-                        <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
+                        
 
                         @if (row.ServiceMap.excludefromstats)
                         {
@@ -115,13 +137,14 @@
                                    title="Included from stats"
                                    aria-label="Included in stats"></i>
                             }
+                            <a href="@hostUrl" target="_blank" rel="noopener noreferrer">@row.ServiceMap.hostname</a>
                     </td>
                     <td>@row.VMName</td>
                     <td>@row.ServiceMap.ipaddr</td>
                     <td>@row.ServiceMap.port</td>
                     @* <td>@row.ServiceMap.appname</td> *@
                     <td>@row.ServiceMap.appversion</td>
-                    <td>@row.ServiceMap.environment</td>
+                    @* <td>@row.ServiceMap.environment</td> *@
 
                     <td>@row.ServiceMap.servicetype</td>
                     <td>@row.ServiceMap.instance</td>
@@ -292,6 +315,12 @@
                 Force Download
             </label>
         </div>
+        <div class="form-check mt-2 d-none" id="upgrade-install-group">
+            <input class="form-check-input" type="checkbox" id="upgrade-install">
+            <label class="form-check-label" for="upgrade-install">
+                Install
+            </label>
+        </div>
       <div class="alert alert-warning mt-3" role="alert" style="font-size:0.95rem;">
         <strong>Warning:</strong> Please carefully review all the above fields before proceeding with the upgrade.
       </div>
@@ -328,6 +357,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var upgradeSqlServerGroup = document.getElementById('upgrade-sql-server-group');
     var upgradeDatabaseGroup = document.getElementById('upgrade-database-group');
     var upgradeForceDownload = document.getElementById('upgrade-force-download');
+    var upgradeInstall = document.getElementById('upgrade-install');
+    var upgradeInstallGroup = document.getElementById('upgrade-install-group');
     var confirmUpgradeBtn = document.getElementById('confirmUpgradeBtn');
     var availableVersions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableVersions));
     var availableVersionsLower = Object.fromEntries(
@@ -335,6 +366,23 @@ document.addEventListener('DOMContentLoaded', function() {
     );
     var defaultSqlServer = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DefaultSqlServer));
     var defaultDatabase = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DefaultDatabase));
+    var saveNotification = document.getElementById('saveNotification');
+    var saveNotificationTimeout = null;
+
+    function showSaveNotification(message, type) {
+        if (!saveNotification) return;
+
+        saveNotification.textContent = message;
+        saveNotification.className = 'alert alert-' + (type || 'info');
+
+        if (saveNotificationTimeout) {
+            clearTimeout(saveNotificationTimeout);
+        }
+
+        saveNotificationTimeout = setTimeout(function() {
+            saveNotification.classList.add('d-none');
+        }, 3000);
+    }
 
     document.querySelectorAll('.edit-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
@@ -363,6 +411,8 @@ document.addEventListener('DOMContentLoaded', function() {
             var dbName = btn.getAttribute('data-dbname') || '';
             var normalizedServiceType = (serviceType || '').toLowerCase();
             var isNoSqlDbType = normalizedServiceType === 'sesame' || normalizedServiceType === 'goline';
+            var hasCurrentVersion = !!(currentVersion || '').trim();
+            var showInstallCheckbox = isNoSqlDbType || (normalizedServiceType === 'iris' && !hasCurrentVersion);
 
             upgradeId.value = id || '';
             upgradeServiceTypeTitle.textContent = serviceType ? `${serviceType}` : '';
@@ -372,13 +422,19 @@ document.addEventListener('DOMContentLoaded', function() {
             upgradeSqlServer.value = sqlHostname || defaultSqlServer || '';
             upgradeDatabase.value = dbName || defaultDatabase || '';
             upgradeForceDownload.checked = false;
+            upgradeInstall.checked = false;
 
             upgradeSqlServerGroup.classList.toggle('d-none', isNoSqlDbType);
             upgradeDatabaseGroup.classList.toggle('d-none', isNoSqlDbType);
+            upgradeInstallGroup.classList.toggle('d-none', !showInstallCheckbox);
 
             var versions = availableVersionsLower[(serviceType || '').toLowerCase()] || [];
-            var options = versions
-                .filter(function(v) { return v && v.localeCompare(currentVersion, undefined, { sensitivity: 'base' }) > 0; })
+            var isIrisWithoutCurrentVersion = normalizedServiceType === 'iris' && !currentVersion;
+            var filteredVersions = isIrisWithoutCurrentVersion
+                ? versions.filter(function(v) { return !!v; })
+                : versions.filter(function(v) { return v && v.localeCompare(currentVersion, undefined, { sensitivity: 'base' }) > 0; });
+
+            var options = filteredVersions
                 .map(function(v) { return '<option value="' + v + '">' + v + '</option>'; })
                 .join('');
 
@@ -415,12 +471,36 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(data => {
             if (data.success) {
-                location.reload();
+                var editButton = document.querySelector('.edit-btn[data-id="' + editId.value + '"]');
+                if (editButton) {
+                    editButton.setAttribute('data-customer', editCustomer.value || '');
+                    editButton.setAttribute('data-site', editSite.value || '');
+                    editButton.setAttribute('data-notes', editNotes.value || '');
+                    editButton.setAttribute('data-active', String(editActive.checked));
+                    editButton.setAttribute('data-irishostname', editIrisHostname.value || '');
+                    editButton.setAttribute('data-excludefromstats', String(editExcludeFromStats.checked));
+
+                    var row = editButton.closest('tr');
+                    if (row) {
+                        var cells = row.querySelectorAll('td');
+                        if (cells.length >= 14) {
+                            cells[10].textContent = editIrisHostname.value || '';
+                            cells[11].textContent = editCustomer.value || '';
+                            cells[12].textContent = editSite.value || '';
+                            cells[13].textContent = editNotes.value || '';
+                        }
+
+                        row.classList.toggle('service-map-row-inactive', !editActive.checked);
+                    }
+                }
+
+                editModal.hide();
+                showSaveNotification('Service map changes saved successfully.', 'success');
             } else {
-                alert('Failed to update.');
+                showSaveNotification('Failed to update.', 'danger');
             }
         })
-        .catch(() => alert('Failed to update.'));
+        .catch(() => showSaveNotification('Failed to update.', 'danger'));
     });
 
     confirmUpgradeBtn.addEventListener('click', function() {
@@ -453,7 +533,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 serviceName: serviceName,
                 sqlServer: sqlServer,
                 database: database,
-                forceDownload: upgradeForceDownload.checked
+                forceDownload: upgradeForceDownload.checked,
+                install: upgradeInstall.checked
             })
         })
         .then(async r => {

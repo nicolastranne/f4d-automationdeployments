@@ -35,6 +35,12 @@ namespace DeployFront.Pages.ServiceMap
         [Microsoft.AspNetCore.Mvc.BindProperty(SupportsGet = true)]
         public string? SearchTerm { get; set; }
 
+        [Microsoft.AspNetCore.Mvc.BindProperty(SupportsGet = true)]
+        public string StatusFilter { get; set; } = "all";
+
+        [Microsoft.AspNetCore.Mvc.BindProperty(SupportsGet = true)]
+        public string StatsFilter { get; set; } = "all";
+
         [TempData]
         public string? ForceSyncMessage { get; set; }
 
@@ -105,6 +111,12 @@ namespace DeployFront.Pages.ServiceMap
                     || (x.ServiceMap.site?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
                     || (x.ServiceMap.port.ToString().Contains(SearchTerm, StringComparison.OrdinalIgnoreCase))
                 )
+                .Where(x => StatusFilter == "all"
+                    || (StatusFilter == "active" && x.ServiceMap.active)
+                    || (StatusFilter == "inactive" && !x.ServiceMap.active))
+                .Where(x => StatsFilter == "all"
+                    || (StatsFilter == "excluded" && x.ServiceMap.excludefromstats)
+                    || (StatsFilter == "included" && !x.ServiceMap.excludefromstats))
                 .OrderBy(x => x.ServiceMap.customer)
                 .ThenBy(x => x.ServiceMap.hostname)
                 .ToList();
@@ -215,7 +227,8 @@ namespace DeployFront.Pages.ServiceMap
                 ServiceType = model.serviceType,
                 SqlServer = model.sqlServer,
                 Database = model.database,
-                ForceDownload = model.forceDownload
+                ForceDownload = model.forceDownload,
+                Install = model.install
             };
 
             var requestUrl = $"{baseUrl}/trigger-runbook-f4dupdateservices";
@@ -386,6 +399,7 @@ namespace DeployFront.Pages.ServiceMap
             public string? sqlServer { get; set; }
             public string? database { get; set; }
             public bool forceDownload { get; set; } = true;
+            public bool install { get; set; }
         }
 
         public class ServiceMapWithVm

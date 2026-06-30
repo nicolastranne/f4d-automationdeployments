@@ -129,18 +129,27 @@ namespace DeployFront.Pages.Kpi
             }
 
             var outage = await _db.Outages.FirstOrDefaultAsync(o => o.id == outageId);
-            if (outage != null)
+            if (outage == null)
             {
-                outage.reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-                _db.Outages.Update(outage);
-                await _db.SaveChangesAsync();
-                SaveMessage = "Outage reason saved.";
-            }
-            else
-            {
+                if (string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new JsonResult(new { success = false, error = "Outage not found." }) { StatusCode = StatusCodes.Status404NotFound };
+                }
+
                 SaveMessage = "Outage not found.";
+                return RedirectToPage(new { year, month, region });
             }
 
+            outage.reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            _db.Outages.Update(outage);
+            await _db.SaveChangesAsync();
+
+            if (string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+            {
+                return new JsonResult(new { success = true, message = "Outage reason saved." });
+            }
+
+            SaveMessage = "Outage reason saved.";
             return RedirectToPage(new { year, month, region });
         }
 
@@ -152,18 +161,41 @@ namespace DeployFront.Pages.Kpi
             }
 
             var outage = await _db.Outages.FirstOrDefaultAsync(o => o.id == outageId);
-            if (outage != null)
+            if (outage == null)
             {
-                outage.excluded = excluded;
-                _db.Outages.Update(outage);
-                await _db.SaveChangesAsync();
-                SaveMessage = excluded ? "Outage excluded from uptime calculations." : "Outage included in uptime calculations.";
-            }
-            else
-            {
+                if (string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new JsonResult(new { success = false, error = "Outage not found." }) { StatusCode = StatusCodes.Status404NotFound };
+                }
+
                 SaveMessage = "Outage not found.";
+                return RedirectToPage(new { year, month, region });
             }
 
+            if (excluded && string.IsNullOrWhiteSpace(outage.reason))
+            {
+                const string errorMessage = "Please add a reason before excluding this outage.";
+                if (string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new JsonResult(new { success = false, error = errorMessage }) { StatusCode = StatusCodes.Status400BadRequest };
+                }
+
+                SaveMessage = errorMessage;
+                return RedirectToPage(new { year, month, region });
+            }
+
+            outage.excluded = excluded;
+            _db.Outages.Update(outage);
+            await _db.SaveChangesAsync();
+
+            var message = excluded ? "Outage excluded from uptime calculations." : "Outage included in uptime calculations.";
+
+            if (string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+            {
+                return new JsonResult(new { success = true, excluded, message });
+            }
+
+            SaveMessage = message;
             return RedirectToPage(new { year, month, region });
         }
 

@@ -368,6 +368,7 @@ namespace DeployFunc
             string sqlServer = GetStringProperty(data, "SqlServer", "sqlServer") ?? string.Empty;
             string database = GetStringProperty(data, "Database", "database") ?? string.Empty;
             bool forceDownload = GetBoolPropertyOrDefault(data, true, "ForceDownload", "forceDownload");
+            bool install = GetBoolPropertyOrDefault(data, false, "Install", "install");
             string serviceType = GetStringProperty(data, "ServiceType", "serviceType") ?? "iris";
             bool isNoSqlDbType = string.Equals(serviceType, "sesame", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(serviceType, "goline", StringComparison.OrdinalIgnoreCase);
@@ -403,6 +404,7 @@ namespace DeployFunc
                 { "SqlServer", sqlServer },
                 { "Database", database },
                 { "ForceDownload", forceDownload },
+                { "Install", install },
                 { "ServiceType", serviceType }
             };
 

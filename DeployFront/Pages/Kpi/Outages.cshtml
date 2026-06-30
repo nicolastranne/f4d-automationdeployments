@@ -10,6 +10,7 @@
 {
     <div class="alert alert-info">@Model.SaveMessage</div>
 }
+<div id="kpiSaveNotification" class="alert d-none" role="alert"></div>
 
 @if (Model.Rows.Count == 0)
 {
@@ -72,12 +73,12 @@ else
                     <td>
                         @if (Model.CanWrite)
                         {
-                            <form method="post" asp-page-handler="UpdateReason" class="d-flex gap-2 align-items-center">
+                            <form method="post" asp-page-handler="UpdateReason" class="d-flex gap-2 align-items-center js-update-reason">
                                 <input type="hidden" name="outageId" value="@row.OutageId" />
                                 <input type="hidden" name="year" value="@Request.Query["year"]" />
                                 <input type="hidden" name="month" value="@Request.Query["month"]" />
                                 <input type="hidden" name="region" value="@Model.Region" />
-                                <input type="text" name="reason" value="@row.Reason" class="form-control form-control-sm" maxlength="1000" />
+                                <input type="text" name="reason" value="@row.Reason" class="form-control form-control-sm js-reason-input" maxlength="1000" />
                                 
                                 <button type="submit" class="btn btn-sm btn-primary" title="Save">
                                     <i class="bi bi-save"></i>
@@ -93,7 +94,7 @@ else
                     @if (Model.CanWrite)
                     {
                         <td>
-                            <form method="post" asp-page-handler="ToggleExclude" class="d-flex align-items-center gap-2">
+                            <form method="post" asp-page-handler="ToggleExclude" class="d-flex align-items-center gap-2 js-toggle-exclude">
                                 <input type="hidden" name="outageId" value="@row.OutageId" />
                                 <input type="hidden" name="year" value="@Request.Query["year"]" />
                                 <input type="hidden" name="month" value="@Request.Query["month"]" />
@@ -104,7 +105,7 @@ else
                                     <i class="bi @(row.Excluded ? "bi-x-circle-fill text-secondary" : "bi-check-circle-fill text-success")"></i>
                                 </span>
 
-                                <button type="submit" class="btn btn-sm btn-outline-secondary">@(row.Excluded ? "Include" : "Exclude")</button>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary js-toggle-exclude-btn" @(!row.Excluded && string.IsNullOrWhiteSpace(row.Reason) ? "disabled" : null)>@(row.Excluded ? "Include" : "Exclude")</button>
                             </form>
                         </td>
                     }
@@ -117,3 +118,98 @@ else
 }
 
 <a asp-page="/Kpi/Index" class="btn btn-outline-secondary">Back to KPI</a>
+
+@section Scripts {
+<script>
+function showKpiSaveNotification(message, type) {
+    const notification = document.getElementById('kpiSaveNotification');
+    if (!notification) return;
+
+    notification.textContent = message;
+    notification.className = 'alert alert-' + (type || 'info');
+
+    setTimeout(function () {
+        notification.classList.add('d-none');
+    }, 3000);
+}
+
+document.addEventListener('submit', async function (e) {
+    const form = e.target;
+    if (!form.matches('.js-update-reason, .js-toggle-exclude')) return;
+
+    e.preventDefault();
+
+    if (form.matches('.js-toggle-exclude')) {
+        const hiddenExcluded = form.querySelector('input[name="excluded"]');
+        const isExcludeAction = hiddenExcluded?.value === 'true';
+        if (isExcludeAction) {
+            const row = form.closest('tr');
+            const reasonInput = row?.querySelector('.js-reason-input');
+            const reasonText = (reasonInput?.value || '').trim();
+            if (!reasonText) {
+                showKpiSaveNotification('Please add a reason before excluding this outage.', 'warning');
+                return;
+            }
+        }
+    }
+
+    try {
+        const response = await fetch(form.action, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: new FormData(form)
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            showKpiSaveNotification(data.error || 'Save failed.', 'danger');
+            return;
+        }
+
+        showKpiSaveNotification(data.message || 'Saved successfully.', 'success');
+
+        if (form.matches('.js-toggle-exclude')) {
+            const hiddenExcluded = form.querySelector('input[name="excluded"]');
+            const statusIcon = form.querySelector('i.bi');
+            const actionButton = form.querySelector('button[type="submit"]');
+            const currentlyExcluded = !!data.excluded;
+            const row = form.closest('tr');
+            const reasonInput = row?.querySelector('.js-reason-input');
+            const reasonText = (reasonInput?.value || '').trim();
+
+            if (hiddenExcluded) {
+                hiddenExcluded.value = currentlyExcluded ? 'false' : 'true';
+            }
+
+            if (statusIcon) {
+                statusIcon.className = 'bi ' + (currentlyExcluded ? 'bi-x-circle-fill text-secondary' : 'bi-check-circle-fill text-success');
+                statusIcon.parentElement?.setAttribute('title', currentlyExcluded ? 'Excluded' : 'Included');
+            }
+
+            if (actionButton) {
+                actionButton.textContent = currentlyExcluded ? 'Include' : 'Exclude';
+                actionButton.disabled = !currentlyExcluded && !reasonText;
+            }
+        }
+    } catch {
+        showKpiSaveNotification('Save failed.', 'danger');
+    }
+});
+
+document.addEventListener('input', function (e) {
+    const input = e.target;
+    if (!input.matches('.js-reason-input')) return;
+
+    const row = input.closest('tr');
+    const toggleForm = row?.querySelector('.js-toggle-exclude');
+    const hiddenExcluded = toggleForm?.querySelector('input[name="excluded"]');
+    const actionButton = toggleForm?.querySelector('.js-toggle-exclude-btn');
+    const isExcludeAction = hiddenExcluded?.value === 'true';
+    if (actionButton && isExcludeAction) {
+        actionButton.disabled = !input.value.trim();
+    }
+});
+</script>
+}

@@ -23,6 +23,7 @@ namespace DeployFront.Pages.Dashboard
         public int IreportServiceCount { get; set; }
         public int SesameServiceCount { get; set; }
         public int GolineServiceCount { get; set; }
+        public int IcontrolServiceCount { get; set; }
         public int UnhealthyChecksLastHour { get; set; }
         public double AverageResponseMsLastHour { get; set; }
         public List<ServiceUptimeCard> IrisUptimeCards
@@ -43,7 +44,7 @@ namespace DeployFront.Pages.Dashboard
             var oneHourAgo = now.AddHours(-1);
             var oneDayAgo = now.AddDays(-1);
 
-            var trackedServiceTypes = new[] { "iris", "ireport", "sesame", "goline" };
+            var trackedServiceTypes = new[] { "iris", "ireport", "sesame", "goline", "icontrol" };
 
             var servicesQuery = _db.ServiceMaps
                 .Where(s => s.active && s.servicetype != null && trackedServiceTypes.Contains(s.servicetype));
@@ -85,6 +86,7 @@ namespace DeployFront.Pages.Dashboard
             IreportServiceCount = services.Count(s => string.Equals(s.servicetype, "ireport", StringComparison.OrdinalIgnoreCase));
             SesameServiceCount = services.Count(s => string.Equals(s.servicetype, "sesame", StringComparison.OrdinalIgnoreCase));
             GolineServiceCount = services.Count(s => string.Equals(s.servicetype, "goline", StringComparison.OrdinalIgnoreCase));
+            IcontrolServiceCount = services.Count(s => string.Equals(s.servicetype, "icontrol", StringComparison.OrdinalIgnoreCase));
 
             CurrentOutages = currentOutageServiceIds.Count;
 
