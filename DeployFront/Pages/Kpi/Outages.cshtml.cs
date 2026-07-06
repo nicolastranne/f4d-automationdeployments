@@ -19,6 +19,17 @@ namespace DeployFront.Pages.Kpi
         public string? SaveMessage { get; set; }
 
         public bool CanWrite { get; set; }
+        public int RegionServiceCount { get; set; }
+        public int TotalChecksInPeriod { get; set; }
+        public int HealthyChecksInPeriod { get; set; }
+        public int RawUnhealthyChecksInPeriod { get; set; }
+        public int ExcludedOutageSecondsInPeriod { get; set; }
+        public int CarryoverOutageSecondsInPeriod { get; set; }
+        public int EstimatedExcludedChecksInPeriod { get; set; }
+        public int AdjustedUnhealthyChecksInPeriod { get; set; }
+        public double AdjustedUptimePercentInPeriod { get; set; }
+        public double KpiRegionAverageUptimePercentInPeriod { get; set; }
+        public int TotalFailureCount { get; set; }
 
         public OutagesModel(ServiceMapDbContext db, IAuthorizationService authorizationService)
         {
@@ -71,10 +82,68 @@ namespace DeployFront.Pages.Kpi
                 .Select(s => s.id)
                 .ToList();
 
+            RegionServiceCount = serviceIdsInRegion.Count;
+
             if (serviceIdsInRegion.Count == 0)
             {
                 return;
             }
+
+            var monthlyChecksByService = await _db.ServiceHealthCheckLogs
+                .Where(h => serviceIdsInRegion.Contains(h.serviceId)
+                    && h.checkTime >= start
+                    && h.checkTime < end)
+                .GroupBy(h => h.serviceId)
+                .Select(g => new
+                {
+                    ServiceId = g.Key,
+                    Total = g.Count(),
+                    Healthy = g.Count(x => x.isHealthy)
+                })
+                .ToListAsync();
+
+            var overlappingOutages = await _db.Outages
+                .Where(o => serviceIdsInRegion.Contains(o.serviceId)
+                    && o.startTime < end
+                    && (o.endTime == null || o.endTime > start))
+                .Select(o => new { o.serviceId, o.startTime, o.endTime, o.excluded })
+                .ToListAsync();
+
+            var adjustmentSecondsByService = serviceIdsInRegion.ToDictionary(
+                id => id,
+                id => overlappingOutages
+                    .Where(o => o.serviceId == id
+                        && (o.excluded || o.startTime < start))
+                    .Sum(o => CalculateOverlapSeconds(o.startTime, o.endTime, start, end)));
+
+            ExcludedOutageSecondsInPeriod = overlappingOutages
+                .Where(o => o.excluded)
+                .Sum(o => CalculateOverlapSeconds(o.startTime, o.endTime, start, end));
+
+            CarryoverOutageSecondsInPeriod = overlappingOutages
+                .Where(o => !o.excluded && o.startTime < start)
+                .Sum(o => CalculateOverlapSeconds(o.startTime, o.endTime, start, end));
+
+            TotalChecksInPeriod = monthlyChecksByService.Sum(x => x.Total);
+            HealthyChecksInPeriod = monthlyChecksByService.Sum(x => x.Healthy);
+            RawUnhealthyChecksInPeriod = Math.Max(0, TotalChecksInPeriod - HealthyChecksInPeriod);
+            var totalAdjustedOutageSeconds = ExcludedOutageSecondsInPeriod + CarryoverOutageSecondsInPeriod;
+            EstimatedExcludedChecksInPeriod = Math.Max(0, (int)Math.Round(totalAdjustedOutageSeconds / 180.0, MidpointRounding.AwayFromZero));
+            AdjustedUnhealthyChecksInPeriod = Math.Max(0, RawUnhealthyChecksInPeriod - EstimatedExcludedChecksInPeriod);
+            AdjustedUptimePercentInPeriod = TotalChecksInPeriod <= 0
+                ? 0
+                : ((TotalChecksInPeriod - AdjustedUnhealthyChecksInPeriod) * 100.0) / TotalChecksInPeriod;
+
+            var perServiceAdjustedUptimes = monthlyChecksByService
+                .Select(x => CalculateAdjustedUptimePercent(
+                    x.Total,
+                    x.Healthy,
+                    adjustmentSecondsByService.TryGetValue(x.ServiceId, out var adjustedSeconds) ? adjustedSeconds : 0))
+                .ToList();
+
+            KpiRegionAverageUptimePercentInPeriod = perServiceAdjustedUptimes.Count == 0
+                ? 0
+                : perServiceAdjustedUptimes.Average();
 
             var query = _db.Outages //await
                 .Where(o => serviceIdsInRegion.Contains(o.serviceId)
@@ -96,7 +165,7 @@ namespace DeployFront.Pages.Kpi
 
             var serviceById = services.ToDictionary(s => s.id, s => s);
 
-            Rows = outages
+            var mappedRows = outages
                 .Select(o =>
                 {
                     serviceById.TryGetValue(o.serviceId, out var service);
@@ -116,9 +185,49 @@ namespace DeployFront.Pages.Kpi
                         Excluded = o.excluded
                     };
                 })
-                //.OrderByDescending(x => x.FailureCount)
-                //.ThenByDescending(x => x.StartTime)
                 .ToList();
+
+            Rows = sort switch
+            {
+                "hostname_asc" => mappedRows
+                    .OrderBy(x => x.Hostname, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(x => x.StartTime)
+                    .ToList(),
+                "hostname_desc" => mappedRows
+                    .OrderByDescending(x => x.Hostname, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(x => x.StartTime)
+                    .ToList(),
+                _ => mappedRows
+            };
+
+            TotalFailureCount = Rows.Sum(x => x.FailureCount);
+        }
+
+        private static double CalculateAdjustedUptimePercent(int totalChecks, int healthyChecks, int excludedOutageSeconds)
+        {
+            if (totalChecks <= 0)
+            {
+                return 0;
+            }
+
+            var unhealthyChecks = Math.Max(0, totalChecks - healthyChecks);
+            var estimatedExcludedChecks = Math.Max(0, (int)Math.Round(excludedOutageSeconds / 180.0, MidpointRounding.AwayFromZero));
+            var adjustedUnhealthyChecks = Math.Max(0, unhealthyChecks - estimatedExcludedChecks);
+            var adjustedHealthyChecks = totalChecks - adjustedUnhealthyChecks;
+
+            return (adjustedHealthyChecks * 100.0) / totalChecks;
+        }
+
+        private static int CalculateOverlapSeconds(DateTime outageStart, DateTime? outageEnd, DateTime windowStart, DateTime windowEnd)
+        {
+            var effectiveStart = outageStart > windowStart ? outageStart : windowStart;
+            var effectiveEnd = (outageEnd ?? windowEnd) < windowEnd ? (outageEnd ?? windowEnd) : windowEnd;
+            if (effectiveEnd <= effectiveStart)
+            {
+                return 0;
+            }
+
+            return (int)(effectiveEnd - effectiveStart).TotalSeconds;
         }
 
         public async Task<IActionResult> OnPostUpdateReasonAsync(long outageId, string? reason, int year, int month, string region)

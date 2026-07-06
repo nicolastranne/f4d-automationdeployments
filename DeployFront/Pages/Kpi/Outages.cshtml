@@ -6,6 +6,17 @@
 
 <h2 class="mb-3">Outages - @Model.Region - @Model.PeriodLabel</h2>
 
+<div class="alert alert-secondary" role="alert">
+    <div><strong>Region KPI calculation (@Model.PeriodLabel):</strong></div>
+    <div class="small">Services in region: @Model.RegionServiceCount</div>
+    <div class="small">Total checks: @Model.TotalChecksInPeriod | Healthy checks: @Model.HealthyChecksInPeriod | Raw unhealthy checks: @Model.RawUnhealthyChecksInPeriod</div>
+    <div class="small">Excluded outage seconds: @Model.ExcludedOutageSecondsInPeriod | Carry-over outage seconds (started before month): @Model.CarryoverOutageSecondsInPeriod</div>
+    <div class="small">Estimated adjusted checks (@("seconds/180")): @Model.EstimatedExcludedChecksInPeriod</div>
+    <div class="small">Adjusted unhealthy checks: @Model.AdjustedUnhealthyChecksInPeriod</div>
+    <div class="small">Adjusted uptime (aggregate checks): @Model.AdjustedUptimePercentInPeriod.ToString("0.##")%</div>
+    <div class="small">KPI page value (avg per-service adjusted uptime): @Model.KpiRegionAverageUptimePercentInPeriod.ToString("0.##")%</div>
+</div>
+
 @if (!string.IsNullOrWhiteSpace(Model.SaveMessage))
 {
     <div class="alert alert-info">@Model.SaveMessage</div>
@@ -22,7 +33,14 @@ else
     <table class="table table-bordered table-striped table-sm align-middle">
         <thead>
             <tr>
-                <th>Hostname</th>
+                <th>
+                    <a asp-route-year="@Model.Year"
+                       asp-route-month="@Model.Month"
+                       asp-route-region="@Model.Region"
+                       asp-route-sort="@(Model.CurrentSort == "hostname_desc" ? "hostname_asc" : "hostname_desc")">
+                        Hostname
+                    </a><i class="bi bi-arrow-down-up"></i>
+                </th>
                 <th>Service Type</th>
                 
                 <th>
@@ -112,6 +130,11 @@ else
                  
                 </tr>
             }
+            <tr class="table-light fw-semibold">
+                <td colspan="5" class="text-end">Total Failure Count</td>
+                <td>@Model.TotalFailureCount</td>
+                <td colspan="@(Model.CanWrite ? 3 : 2)"></td>
+            </tr>
         </tbody>
     </table>
 

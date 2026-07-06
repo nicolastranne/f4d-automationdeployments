@@ -26,6 +26,7 @@ namespace DeployFunc
     {
         private readonly ILogger<AutomationFunction> _logger;
         private readonly ServiceMapDbContext _db;
+        private static readonly HttpClient _httpClient = new HttpClient();
 
         public AutomationFunction(ILogger<AutomationFunction> logger, ServiceMapDbContext db)
         {
@@ -248,21 +249,22 @@ namespace DeployFunc
             var irisServices = await _db.ServiceMaps
                 .Where(x => x.servicetype == "iris" && x.hostname != null && x.ipaddr != null)
                 .ToListAsync();
-            int updated = 0;
-            foreach (var service in irisServices)
+
+            var serviceById = irisServices.ToDictionary(s => s.id);
+
+            var probeResults = await Task.WhenAll(irisServices.Select(async service =>
             {
                 try
                 {
-                    // Replace 'iris' with 'icontrol' in the hostname
                     var icontrolHost = service.hostname.Replace("iris", "icontrol", StringComparison.OrdinalIgnoreCase);
-                    // Build the URL
                     var url = $"http://{icontrolHost}/live/server";
-                    using var httpClient = new System.Net.Http.HttpClient();
-                    var response = await httpClient.GetAsync(url);
+                    var response = await _httpClient.GetAsync(url);
                     if (!response.IsSuccessStatusCode)
-                        continue;
+                    {
+                        return (serviceId: service.id, success: false, appversion: (string?)null, instance: (string?)null, sqlhostname: (string?)null, dbname: (string?)null, error: $"Status code {(int)response.StatusCode}");
+                    }
+
                     var xml = await response.Content.ReadAsStringAsync();
-                    // Parse XML
                     var doc = System.Xml.Linq.XDocument.Parse(xml);
                     var liveElem = doc.Root?.Name.LocalName == "live" ? doc.Root : doc.Root?.Element("live");
                     var serverElem = liveElem?.Element("server");
@@ -273,42 +275,58 @@ namespace DeployFunc
                     var sqlhostname = dbElem?.Attribute("hostname")?.Value;
                     var dbname = dbElem?.Attribute("catalog")?.Value;
 
-                    var changed = false;
-
-                    if (!string.IsNullOrWhiteSpace(appversion) && !string.Equals(service.appversion, appversion, StringComparison.OrdinalIgnoreCase))
-                    {
-                        service.appversion = appversion;
-                        changed = true;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(instance) && !string.Equals(service.instance, instance, StringComparison.OrdinalIgnoreCase))
-                    {
-                        service.instance = instance;
-                        changed = true;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(sqlhostname) && !string.Equals(service.sqlhostname, sqlhostname, StringComparison.OrdinalIgnoreCase))
-                    {
-                        service.sqlhostname = sqlhostname;
-                        changed = true;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(dbname) && !string.Equals(service.dbname, dbname, StringComparison.OrdinalIgnoreCase))
-                    {
-                        service.dbname = dbname;
-                        changed = true;
-                    }
-
-                    if (changed)
-                    {
-                        _db.ServiceMaps.Update(service);
-                        updated++;
-                    }
-
+                    return (serviceId: service.id, success: true, appversion, instance, sqlhostname, dbname, error: (string?)null);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, $"Failed to update appversion for {service.hostname}");
+                    return (serviceId: service.id, success: false, appversion: (string?)null, instance: (string?)null, sqlhostname: (string?)null, dbname: (string?)null, error: ex.Message);
+                }
+            }));
+
+            int updated = 0;
+            foreach (var result in probeResults)
+            {
+                if (!serviceById.TryGetValue(result.serviceId, out var service))
+                {
+                    continue;
+                }
+
+                if (!result.success)
+                {
+                    _logger.LogWarning("Failed to update appversion for {Hostname}: {Error}", service.hostname, result.error);
+                    continue;
+                }
+
+                var changed = false;
+
+                if (!string.IsNullOrWhiteSpace(result.appversion) && !string.Equals(service.appversion, result.appversion, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.appversion = result.appversion;
+                    changed = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.instance) && !string.Equals(service.instance, result.instance, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.instance = result.instance;
+                    changed = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.sqlhostname) && !string.Equals(service.sqlhostname, result.sqlhostname, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.sqlhostname = result.sqlhostname;
+                    changed = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.dbname) && !string.Equals(service.dbname, result.dbname, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.dbname = result.dbname;
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    _db.ServiceMaps.Update(service);
+                    updated++;
                 }
             }
             await _db.SaveChangesAsync();

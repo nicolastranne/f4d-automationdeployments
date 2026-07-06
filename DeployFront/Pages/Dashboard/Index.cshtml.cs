@@ -43,6 +43,7 @@ namespace DeployFront.Pages.Dashboard
             var now = DateTime.UtcNow;
             var oneHourAgo = now.AddHours(-1);
             var oneDayAgo = now.AddDays(-1);
+            var thirtyDaysAgo = now.AddDays(-30);
 
             var trackedServiceTypes = new[] { "iris", "ireport", "sesame", "goline", "icontrol" };
 
@@ -62,7 +63,7 @@ namespace DeployFront.Pages.Dashboard
             }
 
             var services = await servicesQuery
-                .Select(s => new { s.id, s.hostname, s.protocol, s.port, s.appversion, s.servicetype })
+                .Select(s => new { s.id, s.hostname, s.protocol, s.port, s.appversion, s.servicetype, s.excludefromstats })
                 .ToListAsync();
 
             var serviceIds = services.Select(s => s.id).ToList();
@@ -102,6 +103,11 @@ namespace DeployFront.Pages.Dashboard
 
             var logsLastDay = await _db.ServiceHealthCheckLogs
                 .Where(h => serviceIds.Contains(h.serviceId) && h.checkTime >= oneDayAgo)
+                .Select(h => new { h.serviceId, h.isHealthy, h.responseTimeMs })
+                .ToListAsync();
+
+            var logsLast30Days = await _db.ServiceHealthCheckLogs
+                .Where(h => serviceIds.Contains(h.serviceId) && h.checkTime >= thirtyDaysAgo)
                 .Select(h => new { h.serviceId, h.isHealthy })
                 .ToListAsync();
 
@@ -109,9 +115,18 @@ namespace DeployFront.Pages.Dashboard
                 .Select(s =>
                 {
                     var serviceLogs = logsLastDay.Where(l => l.serviceId == s.id).ToList();
+                    var serviceLogs30Days = logsLast30Days.Where(l => l.serviceId == s.id).ToList();
                     var total = serviceLogs.Count;
                     var healthy = serviceLogs.Count(l => l.isHealthy);
                     var uptimePercent = total == 0 ? 0 : Math.Round((healthy * 100.0) / total, 2);
+                    var total30Days = serviceLogs30Days.Count;
+                    var healthy30Days = serviceLogs30Days.Count(l => l.isHealthy);
+                    var uptime30DaysPercent = total30Days == 0 ? 0 : Math.Round((healthy30Days * 100.0) / total30Days, 2);
+                    var avgResponse24h = serviceLogs
+                        .Where(l => l.responseTimeMs.HasValue)
+                        .Select(l => (double)l.responseTimeMs!.Value)
+                        .DefaultIfEmpty(0)
+                        .Average();
 
                     return new ServiceUptimeCard
                     {
@@ -119,8 +134,11 @@ namespace DeployFront.Pages.Dashboard
                         Hostname = s.hostname,
                         AppVersion = s.appversion,
                         ServiceType = s.servicetype,
+                        ExcludeFromStats = s.excludefromstats,
                         ServiceUrl = BuildServiceUrl(s.protocol, s.hostname, s.port),
                         UptimePercent = uptimePercent,
+                        Uptime30DaysPercent = uptime30DaysPercent,
+                        AvgResponseMsLast24Hours = Math.Round(avgResponse24h, 0),
                         TotalChecks = total,
                         HealthyChecks = healthy
                     };
@@ -141,8 +159,11 @@ namespace DeployFront.Pages.Dashboard
             public string Hostname { get; set; } = string.Empty;
             public string? AppVersion { get; set; }
             public string? ServiceType { get; set; }
+            public bool ExcludeFromStats { get; set; }
             public string ServiceUrl { get; set; } = string.Empty;
             public double UptimePercent { get; set; }
+            public double Uptime30DaysPercent { get; set; }
+            public double AvgResponseMsLast24Hours { get; set; }
             public int TotalChecks { get; set; }
             public int HealthyChecks { get; set; }
         }

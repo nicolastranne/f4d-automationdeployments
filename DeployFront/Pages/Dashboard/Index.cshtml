@@ -143,10 +143,26 @@
                     <div class="col">
                         <a href="@service.ServiceUrl" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-reset d-block h-100">
                         <div class="border rounded p-3 h-100">
-                            <div class="fw-semibold text-truncate" title="@service.Hostname">@service.Hostname</div>
+                            <div class="fw-semibold text-truncate" title="@service.Hostname">
+                                @if (service.ExcludeFromStats)
+                                {
+                                    <i class="bi bi-bar-chart-line-fill text-secondary me-1"
+                                       title="Excluded from stats"
+                                       aria-label="Excluded from stats"></i>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-bar-chart-line-fill text-success me-1"
+                                       title="Included in stats"
+                                       aria-label="Included in stats"></i>
+                                }
+                                @service.Hostname
+                            </div>
                             <div class="small text-muted">Type: @(string.IsNullOrWhiteSpace(service.ServiceType) ? "N/A" : service.ServiceType)</div>
                             <div class="small text-muted">Version: @(string.IsNullOrWhiteSpace(service.AppVersion) ? "N/A" : service.AppVersion)</div>
-                            <div class="small text-muted mb-2">Checks: @service.HealthyChecks/@service.TotalChecks</div>
+                            <div class="small text-muted">Avg response (24h): @service.AvgResponseMsLast24Hours ms</div>
+                            <div class="small text-muted">Uptime (24h): @service.UptimePercent%</div>
+                            <div class="small text-muted mb-2">Uptime (30d): @service.Uptime30DaysPercent%</div>
                             <div class="progress" role="progressbar" aria-valuenow="@service.UptimePercent" aria-valuemin="0" aria-valuemax="100">
                                 <div class="progress-bar @barClass" style="width: @service.UptimePercent%">@service.UptimePercent%</div>
                             </div>

@@ -55,22 +55,31 @@ namespace DeployFront.Pages.Kpi
                 })
                 .ToListAsync();
 
-            var monthlyExcludedOutageSeconds = await _db.Outages
-                .Where(o => o.excluded)
-                .GroupBy(o => new { o.serviceId, o.startTime.Year, o.startTime.Month })
-                .Select(g => new
-                {
-                    g.Key.serviceId,
-                    g.Key.Year,
-                    g.Key.Month,
-                    ExcludedSeconds = g.Sum(x => x.durationSeconds ?? 0)
-                })
-                .ToListAsync();
+            var monthWindows = monthlyByService
+                .Select(x => new { x.Year, x.Month })
+                .Distinct()
+                .ToList();
 
-            var excludedByServiceMonth = monthlyExcludedOutageSeconds
-                .ToDictionary(
-                    x => (x.serviceId, x.Year, x.Month),
-                    x => x.ExcludedSeconds);
+            var monthlyAdjustmentsByService = new Dictionary<(int serviceId, int Year, int Month), int>();
+            foreach (var window in monthWindows)
+            {
+                var monthStart = new DateTime(window.Year, window.Month, 1);
+                var monthEnd = monthStart.AddMonths(1);
+
+                var overlaps = await _db.Outages
+                    .Where(o => serviceIds.Contains(o.serviceId)
+                        && o.startTime < monthEnd
+                        && (o.endTime == null || o.endTime > monthStart)
+                        && (o.excluded || o.startTime < monthStart))
+                    .Select(o => new { o.serviceId, o.startTime, o.endTime })
+                    .ToListAsync();
+
+                foreach (var group in overlaps.GroupBy(x => x.serviceId))
+                {
+                    var seconds = group.Sum(o => CalculateOverlapSeconds(o.startTime, o.endTime, monthStart, monthEnd));
+                    monthlyAdjustmentsByService[(group.Key, window.Year, window.Month)] = seconds;
+                }
+            }
 
             var perRegionMonth = monthlyByService
                 .Select(x => new
@@ -81,8 +90,8 @@ namespace DeployFront.Pages.Kpi
                     Uptime = CalculateAdjustedUptimePercent(
                         x.Total,
                         x.Healthy,
-                        excludedByServiceMonth.TryGetValue((x.serviceId, x.Year, x.Month), out var excludedSeconds)
-                            ? excludedSeconds
+                        monthlyAdjustmentsByService.TryGetValue((x.serviceId, x.Year, x.Month), out var adjustmentSeconds)
+                            ? adjustmentSeconds
                             : 0)
                 })
                 .Where(x => x.Region is "AU" or "US" or "EU")
@@ -159,6 +168,18 @@ namespace DeployFront.Pages.Kpi
             var adjustedHealthyChecks = totalChecks - adjustedUnhealthyChecks;
 
             return (adjustedHealthyChecks * 100.0) / totalChecks;
+        }
+
+        private static int CalculateOverlapSeconds(DateTime outageStart, DateTime? outageEnd, DateTime windowStart, DateTime windowEnd)
+        {
+            var effectiveStart = outageStart > windowStart ? outageStart : windowStart;
+            var effectiveEnd = (outageEnd ?? windowEnd) < windowEnd ? (outageEnd ?? windowEnd) : windowEnd;
+            if (effectiveEnd <= effectiveStart)
+            {
+                return 0;
+            }
+
+            return (int)(effectiveEnd - effectiveStart).TotalSeconds;
         }
 
         public class RegionMonthlyKpiRow

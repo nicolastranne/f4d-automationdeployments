@@ -13,7 +13,7 @@ namespace DeployFunc
     {
         private readonly ILogger<HealthFunction> _logger;
         private readonly ServiceMapDbContext _db;
-        private static readonly TimeSpan HealthCheckTimeout = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan HealthCheckTimeout = TimeSpan.FromSeconds(10);
         private static readonly HttpClient _httpClient = new HttpClient
         {
             Timeout = HealthCheckTimeout
