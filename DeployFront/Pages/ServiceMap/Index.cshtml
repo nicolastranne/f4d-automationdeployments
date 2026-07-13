@@ -166,6 +166,10 @@
                             var st = row.ServiceMap.servicetype;
                             var currentVersion = row.ServiceMap.appversion;
                             var showUpgrade = false;
+                            var showMigrate = string.Equals(st, "iris", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(st, "ireport", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(st, "goline", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(st, "sesame", StringComparison.OrdinalIgnoreCase);
                             if (string.Equals(st, "sesame", StringComparison.OrdinalIgnoreCase))
                             {
                                 showUpgrade = true;
@@ -194,6 +198,19 @@
                                 data-sqlhostname="@row.ServiceMap.sqlhostname"
                                 data-dbname="@row.ServiceMap.dbname">
                                 <i class="bi bi-upload"></i>
+                            </button>
+                        }
+                        @if (showMigrate)
+                        {
+                            <button type="button" class="btn btn-sm btn-info p-1 migrate-btn" title="Migrate Infra"
+                                data-id="@row.ServiceMap.id"
+                                data-customer="@row.ServiceMap.customer"
+                                data-site="@row.ServiceMap.site"
+                                data-ipaddr="@row.ServiceMap.ipaddr"
+                                data-region="@row.Region"
+                                data-hostname="@row.ServiceMap.hostname"
+                                data-port="@row.ServiceMap.port">
+                                            <i class="bi bi-shuffle"></i>
                             </button>
                         }
                     </div>
@@ -332,11 +349,63 @@
   </div>
 </div>
 
+<!-- Migrate Infra Modal -->
+<div class="modal fade" id="migrateModal" tabindex="-1" aria-labelledby="migrateModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="migrateModalLabel">Migrate Infrastructure</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+         <input type="hidden" id="migrate-id" />
+         <div class="mt-2">
+             <label for="migrate-customer-name" class="form-label">Customer Name</label>
+             <input type="text" id="migrate-customer-name" class="form-control" />
+         </div>
+         <div class="mt-2">
+             <label for="migrate-site-name" class="form-label">Site Name</label>
+             <input type="text" id="migrate-site-name" class="form-control" />
+         </div>
+         <div class="mt-2">
+             <label for="migrate-rule-name" class="form-label">Rule Name</label>
+             <input type="text" id="migrate-rule-name" class="form-control" />
+         </div>
+         <div class="mt-2">
+             <label for="migrate-destination-address-prefix" class="form-label">Destination Address Prefix</label>
+             <input type="text" id="migrate-destination-address-prefix" class="form-control" />
+         </div>
+         <div class="mt-2">
+             <label for="migrate-parent-zone-name" class="form-label">Parent Zone Name</label>
+             <input type="text" id="migrate-parent-zone-name" class="form-control" />
+         </div>
+         <div class="mt-2">
+             <label for="migrate-region-prefix" class="form-label">Region Prefix</label>
+             <input type="text" id="migrate-region-prefix" class="form-control" />
+         </div>
+         <div class="mt-2">
+             <label for="migrate-hostname" class="form-label">Hostname</label>
+             <input type="text" id="migrate-hostname" class="form-control" />
+         </div>
+         <div class="mt-2">
+             <label for="migrate-port" class="form-label">Port</label>
+             <input type="number" id="migrate-port" class="form-control" />
+         </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmMigrateBtn">Migrate</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 @section Scripts {
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var editModal = new bootstrap.Modal(document.getElementById('editModal'));
     var upgradeModal = new bootstrap.Modal(document.getElementById('upgradeModal'));
+    var migrateModal = new bootstrap.Modal(document.getElementById('migrateModal'));
     var editId = document.getElementById('edit-id');
     var editCustomer = document.getElementById('edit-customer');
     var editSite = document.getElementById('edit-site');
@@ -360,6 +429,16 @@ document.addEventListener('DOMContentLoaded', function() {
     var upgradeInstall = document.getElementById('upgrade-install');
     var upgradeInstallGroup = document.getElementById('upgrade-install-group');
     var confirmUpgradeBtn = document.getElementById('confirmUpgradeBtn');
+    var migrateId = document.getElementById('migrate-id');
+    var migrateCustomerName = document.getElementById('migrate-customer-name');
+    var migrateSiteName = document.getElementById('migrate-site-name');
+    var migrateRuleName = document.getElementById('migrate-rule-name');
+    var migrateDestinationAddressPrefix = document.getElementById('migrate-destination-address-prefix');
+    var migrateParentZoneName = document.getElementById('migrate-parent-zone-name');
+    var migrateRegionPrefix = document.getElementById('migrate-region-prefix');
+    var migrateHostname = document.getElementById('migrate-hostname');
+    var migratePort = document.getElementById('migrate-port');
+    var confirmMigrateBtn = document.getElementById('confirmMigrateBtn');
     var availableVersions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableVersions));
     var availableVersionsLower = Object.fromEntries(
         Object.entries(availableVersions || {}).map(([k, v]) => [(k || '').toLowerCase(), v])
@@ -441,6 +520,34 @@ document.addEventListener('DOMContentLoaded', function() {
             upgradeVersion.innerHTML = options || '<option value="">No higher versions available</option>';
             confirmUpgradeBtn.disabled = !options;
             upgradeModal.show();
+        });
+    });
+
+    document.querySelectorAll('.migrate-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var id = btn.getAttribute('data-id') || '';
+            var customer = btn.getAttribute('data-customer') || '';
+            var site = btn.getAttribute('data-site') || '';
+            var destinationAddressPrefix = btn.getAttribute('data-ipaddr') || '';
+            var region = (btn.getAttribute('data-region') || '').toUpperCase();
+            var hostname = btn.getAttribute('data-hostname') || '';
+            var port = btn.getAttribute('data-port') || '';
+
+            var hostnameParts = hostname.split('.');
+            var parentZoneName = hostnameParts.length > 1 ? hostnameParts.slice(1).join('.') : '';
+            var ruleName = [customer, site].filter(function(x) { return !!x; }).join('/');
+            var regionPrefix = region === 'EU' || region === 'US' ? region : '';
+
+            migrateId.value = id;
+            migrateCustomerName.value = customer;
+            migrateSiteName.value = site;
+            migrateRuleName.value = ruleName;
+            migrateDestinationAddressPrefix.value = destinationAddressPrefix;
+            migrateParentZoneName.value = parentZoneName;
+            migrateRegionPrefix.value = regionPrefix;
+            migrateHostname.value = hostname;
+            migratePort.value = port;
+            migrateModal.show();
         });
     });
 
@@ -553,6 +660,53 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(() => alert('Failed to submit upgrade request.'));
+    });
+
+    confirmMigrateBtn.addEventListener('click', function() {
+        const antiForgeryToken = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value || '';
+        const customerName = migrateCustomerName.value.trim();
+        const siteName = migrateSiteName.value.trim();
+        const destinationAddressPrefix = migrateDestinationAddressPrefix.value.trim();
+
+        if (!customerName || !siteName || !destinationAddressPrefix) {
+            alert('Please fill Customer Name, Site Name and Destination Address Prefix.');
+            return;
+        }
+
+        fetch('?handler=MigrateInfra', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': antiForgeryToken
+            },
+            body: JSON.stringify({
+                id: parseInt(migrateId.value, 10),
+                customerName: customerName,
+                siteName: siteName,
+                ruleName: migrateRuleName.value.trim(),
+                destinationAddressPrefix: destinationAddressPrefix,
+                parentZoneName: migrateParentZoneName.value.trim(),
+                regionPrefix: migrateRegionPrefix.value.trim(),
+                hostname: migrateHostname.value.trim(),
+                port: migratePort.value ? parseInt(migratePort.value, 10) : null
+            })
+        })
+        .then(async r => {
+            if (!r.ok) {
+                const errorText = await r.text();
+                throw new Error(errorText || 'Request failed');
+            }
+            return r.json();
+        })
+        .then(data => {
+            if (data.success) {
+                migrateModal.hide();
+                alert('Migrate infra triggered successfully.');
+            } else {
+                alert(data.error || 'Failed to trigger migrate infra.');
+            }
+        })
+        .catch(() => alert('Failed to trigger migrate infra.'));
     });
 });
 </script>

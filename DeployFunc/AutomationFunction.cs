@@ -459,6 +459,129 @@ namespace DeployFunc
 
             return new OkObjectResult(new { jobId = jobName, status = "Submitted", details = responseContent });
         }
+
+        [Function("TriggerRunbook_F4DMigrateInfra")]
+        public async Task<IActionResult> TriggerRunbook_F4DMigrateInfra_Async(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "trigger-runbook-f4dmigrateinfra")] HttpRequest req)
+        {
+            var body = await new StreamReader(req.Body).ReadToEndAsync();
+            var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
+
+            static string? GetStringProperty(System.Text.Json.JsonElement element, params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    if (element.TryGetProperty(name, out var value) && value.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    {
+                        return value.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? value.GetString()
+                            : value.ToString();
+                    }
+                }
+                return null;
+            }
+
+            static int? GetIntProperty(System.Text.Json.JsonElement element, params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    if (!element.TryGetProperty(name, out var value) || value.ValueKind == System.Text.Json.JsonValueKind.Null)
+                        continue;
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.Number && value.TryGetInt32(out var intValue))
+                        return intValue;
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.String && int.TryParse(value.GetString(), out var parsedValue))
+                        return parsedValue;
+                }
+
+                return null;
+            }
+
+            var customerName = GetStringProperty(data, "CustomerName", "customerName") ?? string.Empty;
+            var siteName = GetStringProperty(data, "SiteName", "siteName") ?? string.Empty;
+            var destinationAddressPrefix = GetStringProperty(data, "DestinationAddressPrefix", "destinationAddressPrefix") ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(customerName)
+                || string.IsNullOrWhiteSpace(siteName)
+                || string.IsNullOrWhiteSpace(destinationAddressPrefix))
+            {
+                return new BadRequestObjectResult("Missing required parameters: CustomerName, SiteName, DestinationAddressPrefix.");
+            }
+
+            var ruleName = GetStringProperty(data, "RuleName", "ruleName");
+            if (string.IsNullOrWhiteSpace(ruleName))
+            {
+                ruleName = $"{customerName}/{siteName}";
+            }
+
+            var parentZoneName = GetStringProperty(data, "ParentZoneName", "parentZoneName") ?? string.Empty;
+            var regionPrefix = GetStringProperty(data, "RegionPrefix", "regionPrefix") ?? string.Empty;
+            var hostname = GetStringProperty(data, "Hostname", "hostname") ?? string.Empty;
+            var port = GetIntProperty(data, "Port", "port");
+
+            string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
+            string resourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
+            string automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
+            const string runbookName = "automation-F4DMigrateInfrastructure.ps1";
+
+            if (string.IsNullOrWhiteSpace(subscriptionId)
+                || string.IsNullOrWhiteSpace(resourceGroup)
+                || string.IsNullOrWhiteSpace(automationAccount))
+            {
+                return new BadRequestObjectResult("Missing automation configuration environment variables.");
+            }
+
+            var parameters = new Dictionary<string, object>
+            {
+                { "CustomerName", customerName },
+                { "SiteName", siteName },
+                { "RuleName", ruleName },
+                { "DestinationAddressPrefix", destinationAddressPrefix },
+                { "ParentZoneName", parentZoneName },
+                { "RegionPrefix", regionPrefix },
+                { "Hostname", hostname }
+            };
+
+            if (port.HasValue)
+            {
+                parameters["Port"] = port.Value;
+            }
+
+            var credential = new DefaultAzureCredential();
+            var token = await credential.GetTokenAsync(
+                new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
+
+            var jobName = Guid.NewGuid().ToString();
+            var requestUri = $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Automation/automationAccounts/{automationAccount}/jobs/{jobName}?api-version=2023-11-01";
+
+            var payload = new
+            {
+                properties = new
+                {
+                    runbook = new { name = runbookName },
+                    parameters
+                }
+            };
+
+            using var httpClient = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Put, requestUri)
+            {
+                Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+
+            using var response = await httpClient.SendAsync(request);
+            var responseContent = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to start migrate infra runbook. Status: {StatusCode}, Body: {Body}", response.StatusCode, responseContent);
+                return new ObjectResult(responseContent) { StatusCode = (int)response.StatusCode };
+            }
+
+            return new OkObjectResult(new { jobId = jobName, status = "Submitted", details = responseContent });
+        }
+
         // HTTP trigger to check status of an Azure Automation job
         [Function("CheckRunbookJobStatus")]
         public async Task<IActionResult> CheckRunbookJobStatusAsync(

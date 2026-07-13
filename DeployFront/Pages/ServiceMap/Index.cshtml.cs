@@ -301,6 +301,103 @@ namespace DeployFront.Pages.ServiceMap
             });
         }
 
+        [IgnoreAntiforgeryToken]
+        public async Task<IActionResult> OnPostMigrateInfraAsync([FromBody] MigrateInfraRequestModel model)
+        {
+            if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+                return new JsonResult(new { success = false, error = "Forbidden" }) { StatusCode = StatusCodes.Status403Forbidden };
+
+            if (model == null
+                || model.id <= 0
+                || string.IsNullOrWhiteSpace(model.customerName)
+                || string.IsNullOrWhiteSpace(model.siteName)
+                || string.IsNullOrWhiteSpace(model.destinationAddressPrefix))
+                return new JsonResult(new { success = false, error = "Invalid data" });
+
+            var entity = await _db.ServiceMaps.FirstOrDefaultAsync(x => x.id == model.id);
+            if (entity == null)
+                return new JsonResult(new { success = false, error = "Service not found" });
+
+            var baseUrl = _configuration["FunctionApp:BaseUrl"]?.TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(baseUrl))
+                return new JsonResult(new { success = false, error = "Function App URL is not configured." });
+
+            var token = await GetFunctionAppAccessTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+                return new JsonResult(new { success = false, error = "Function App scope/client ID is not configured." });
+
+            var payload = new
+            {
+                CustomerName = model.customerName,
+                SiteName = model.siteName,
+                RuleName = string.IsNullOrWhiteSpace(model.ruleName) ? $"{model.customerName}/{model.siteName}" : model.ruleName,
+                DestinationAddressPrefix = model.destinationAddressPrefix,
+                ParentZoneName = model.parentZoneName,
+                RegionPrefix = model.regionPrefix,
+                Hostname = model.hostname,
+                Port = model.port
+            };
+
+            var requestUrl = $"{baseUrl}/trigger-runbook-f4dmigrateinfra";
+            var requestBody = JsonSerializer.Serialize(payload);
+
+            async Task LogUpgradeActionAsync(int? statusCode, string? resultBody)
+            {
+                _db.UpgradeActionLogs.Add(new UpgradeActionLog
+                {
+                    requestUrl = requestUrl,
+                    requestType = HttpMethod.Post.Method,
+                    requestBody = requestBody,
+                    result = resultBody,
+                    statusCode = statusCode,
+                    createdAt = DateTime.UtcNow
+                });
+
+                await _db.SaveChangesAsync();
+            }
+
+            var client = _httpClientFactory.CreateClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl)
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await client.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            await LogUpgradeActionAsync((int)response.StatusCode, body);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return new JsonResult(new
+                {
+                    success = false,
+                    error = "Failed to trigger migrate infra runbook.",
+                    details = body
+                });
+            }
+
+            object? responseData = null;
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                try
+                {
+                    responseData = JsonSerializer.Deserialize<object>(body);
+                }
+                catch
+                {
+                    responseData = body;
+                }
+            }
+
+            return new JsonResult(new
+            {
+                success = true,
+                message = "Migrate infra runbook submitted.",
+                runbookResponse = responseData
+            });
+        }
+
         public async Task<IActionResult> OnGetAuthDiagnosticsAsync()
         {
             if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
@@ -400,6 +497,19 @@ namespace DeployFront.Pages.ServiceMap
             public string? database { get; set; }
             public bool forceDownload { get; set; } = true;
             public bool install { get; set; }
+        }
+
+        public class MigrateInfraRequestModel
+        {
+            public int id { get; set; }
+            public string? customerName { get; set; }
+            public string? siteName { get; set; }
+            public string? ruleName { get; set; }
+            public string? destinationAddressPrefix { get; set; }
+            public string? parentZoneName { get; set; }
+            public string? regionPrefix { get; set; }
+            public string? hostname { get; set; }
+            public int? port { get; set; }
         }
 
         public class ServiceMapWithVm
