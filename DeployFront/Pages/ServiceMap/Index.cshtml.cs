@@ -84,6 +84,9 @@ namespace DeployFront.Pages.ServiceMap
             DefaultSqlServer = _configuration["UpgradeDefaults:SqlServer"] ?? string.Empty;
             DefaultDatabase = _configuration["UpgradeDefaults:Database"] ?? string.Empty;
 
+            var searchTokens = (SearchTerm ?? string.Empty)
+                .Split(new[] { ' ', ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
             ServiceMapsWithVm = allMaps
                 .Select(s => {
                     var vmName = GetVmName(s.ipaddr, vmMappings);
@@ -101,16 +104,17 @@ namespace DeployFront.Pages.ServiceMap
                         Region = region
                     };
                 })
-                .Where(x => string.IsNullOrWhiteSpace(SearchTerm)
-                    || (x.ServiceMap.hostname?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (x.ServiceMap.appname?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (x.ServiceMap.environment?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (x.VMName.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase))
-                    || (x.Region.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase))
-                    || (x.ServiceMap.customer?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (x.ServiceMap.site?.Contains(SearchTerm, System.StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (x.ServiceMap.port.ToString().Contains(SearchTerm, StringComparison.OrdinalIgnoreCase))
-                )
+                .Where(x => searchTokens.Length == 0
+                    || searchTokens.All(token =>
+                        (x.ServiceMap.hostname?.Contains(token, StringComparison.OrdinalIgnoreCase) ?? false)
+                        || (x.ServiceMap.appname?.Contains(token, StringComparison.OrdinalIgnoreCase) ?? false)
+                        || (x.ServiceMap.environment?.Contains(token, StringComparison.OrdinalIgnoreCase) ?? false)
+                        || (x.VMName.Contains(token, StringComparison.OrdinalIgnoreCase))
+                        || (x.Region.Contains(token, StringComparison.OrdinalIgnoreCase))
+                        || (x.ServiceMap.customer?.Contains(token, StringComparison.OrdinalIgnoreCase) ?? false)
+                        || (x.ServiceMap.site?.Contains(token, StringComparison.OrdinalIgnoreCase) ?? false)
+                        || (x.ServiceMap.port.ToString().Contains(token, StringComparison.OrdinalIgnoreCase))
+                    ))
                 .Where(x => StatusFilter == "all"
                     || (StatusFilter == "active" && x.ServiceMap.active)
                     || (StatusFilter == "inactive" && !x.ServiceMap.active))
