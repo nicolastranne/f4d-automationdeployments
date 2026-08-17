@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 
@@ -67,7 +68,7 @@ namespace DeployFunc
 
                     healthLog.statusCode = (int)response.StatusCode;
                     healthLog.responseTimeMs = (int)sw.ElapsedMilliseconds;
-                    healthLog.isHealthy = response.IsSuccessStatusCode;
+                    healthLog.isHealthy = response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.Unauthorized; 
 
                     if (!healthLog.isHealthy)
                     {
