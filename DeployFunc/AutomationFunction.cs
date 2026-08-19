@@ -233,6 +233,7 @@ namespace DeployFunc
         {
             await RunFileShareToServiceMapDb_Request();
             await UpdateIrisAppVersions_Request();
+            await UpdateAppVersions_Request();
             return new OkObjectResult($"Updated Service map and version");
         }
 
@@ -243,6 +244,103 @@ namespace DeployFunc
         {
             return await UpdateIrisAppVersions_Request();
         }
+
+        public async Task<IActionResult> UpdateAppVersions(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "updateappversions")] HttpRequest req)
+        {
+            return await UpdateAppVersions_Request();
+        }
+
+        public async Task<IActionResult> UpdateAppVersions_Request()
+        {
+            var Services = await _db.ServiceMaps
+                .Where(x => (x.servicetype == "Sesame" || x.servicetype == "Goline" || x.servicetype == "iReport") 
+                    && x.hostname != null && x.ipaddr != null)
+                .ToListAsync();
+
+            var serviceById = Services.ToDictionary(s => s.id);
+
+            var probeResults = await Task.WhenAll(Services.Select(async service =>
+            {
+                try
+                {
+                    
+                    var url = $"http://{service.hostname}/live/server";
+                    var response = await _httpClient.GetAsync(url);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return (serviceId: service.id, success: false, appversion: (string?)null, instance: (string?)null, sqlhostname: (string?)null, dbname: (string?)null, error: $"Status code {(int)response.StatusCode}");
+                    }
+
+                    var xml = await response.Content.ReadAsStringAsync();
+                    var doc = System.Xml.Linq.XDocument.Parse(xml);
+                    var liveElem = doc.Root?.Name.LocalName == "live" ? doc.Root : doc.Root?.Element("live");
+                    var serverElem = liveElem?.Element("server");
+                    var dbElem = liveElem?.Element("db");
+
+                    var appversion = serverElem?.Attribute("version")?.Value;
+                    var instance = serverElem?.Attribute("instance")?.Value;
+                    var sqlhostname = dbElem?.Attribute("hostname")?.Value;
+                    var dbname = dbElem?.Attribute("catalog")?.Value;
+
+                    return (serviceId: service.id, success: true, appversion, instance, sqlhostname, dbname, error: (string?)null);
+                }
+                catch (Exception ex)
+                {
+                    return (serviceId: service.id, success: false, appversion: (string?)null, instance: (string?)null, sqlhostname: (string?)null, dbname: (string?)null, error: ex.Message);
+                }
+            }));
+
+            int updated = 0;
+            foreach (var result in probeResults)
+            {
+                if (!serviceById.TryGetValue(result.serviceId, out var service))
+                {
+                    continue;
+                }
+
+                if (!result.success)
+                {
+                    _logger.LogWarning("Failed to update appversion for {Hostname}: {Error}", service.hostname, result.error);
+                    continue;
+                }
+
+                var changed = false;
+
+                if (!string.IsNullOrWhiteSpace(result.appversion) && !string.Equals(service.appversion, result.appversion, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.appversion = result.appversion;
+                    changed = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.instance) && !string.Equals(service.instance, result.instance, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.instance = result.instance;
+                    changed = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.sqlhostname) && !string.Equals(service.sqlhostname, result.sqlhostname, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.sqlhostname = result.sqlhostname;
+                    changed = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.dbname) && !string.Equals(service.dbname, result.dbname, StringComparison.OrdinalIgnoreCase))
+                {
+                    service.dbname = result.dbname;
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    _db.ServiceMaps.Update(service);
+                    updated++;
+                }
+            }
+            await _db.SaveChangesAsync();
+            return new OkObjectResult($"Updated appversion for {updated} services.");
+        }
+
 
         public async Task<IActionResult> UpdateIrisAppVersions_Request()
         {
