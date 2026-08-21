@@ -137,13 +137,18 @@ namespace DeployFunc
 
                     if (ongoingOutage != null)
                     {
+                        var shouldNotifyRecovery = ongoingOutage.failureCount >= OutageNotificationThreshold;
+
                         ongoingOutage.isOngoing = false;
                         ongoingOutage.endTime = now;
                         ongoingOutage.lastUpdated = now;
                         ongoingOutage.durationSeconds = (int)(now - ongoingOutage.startTime).TotalSeconds;
                         _db.Outages.Update(ongoingOutage);
 
-                        await NotifyServiceBackOnlineAsync(service, ongoingOutage, healthLog);
+                        if (shouldNotifyRecovery)
+                        {
+                            await NotifyServiceBackOnlineAsync(service, ongoingOutage, healthLog);
+                        }
                     }
                 }
             }
