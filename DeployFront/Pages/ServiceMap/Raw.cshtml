@@ -1,0 +1,14 @@
+@page "/ServiceMap/raw"
+@model DeployFront.Pages.ServiceMap.RawModel
+@{
+    ViewData["Title"] = "Service Map Raw";
+}
+
+<h2>Service Map Raw</h2>
+
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+
+<pre style="white-space: pre-wrap; word-break: break-word;">@Model.RawContent</pre>
