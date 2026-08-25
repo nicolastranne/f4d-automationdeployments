@@ -26,12 +26,18 @@ namespace DeployFunc
     {
         private readonly ILogger<AutomationFunction> _logger;
         private readonly ServiceMapDbContext _db;
+        private readonly string? _subscriptionId;
+        private readonly string? _automationResourceGroup;
+        private readonly string? _automationAccount;
         private static readonly HttpClient _httpClient = new HttpClient();
 
         public AutomationFunction(ILogger<AutomationFunction> logger, ServiceMapDbContext db)
         {
             _logger = logger;
             _db = db;
+            _subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
+            _automationResourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
+            _automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
         }
 
         [Function("Test")]
@@ -498,15 +504,11 @@ namespace DeployFunc
                 return new BadRequestObjectResult("Missing required runbook parameters.");
             }
 
-            // These should be in your config/environment
-            string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
-            string resourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
-            string automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
-            string runbookName = Environment.GetEnvironmentVariable("AUTOMATION_RUNBOOK_NAME");
+            string runbookName = "automation-F4DUpdateServices";
 
-            if (string.IsNullOrWhiteSpace(subscriptionId)
-                || string.IsNullOrWhiteSpace(resourceGroup)
-                || string.IsNullOrWhiteSpace(automationAccount)
+            if (string.IsNullOrWhiteSpace(_subscriptionId)
+                || string.IsNullOrWhiteSpace(_automationResourceGroup)
+                || string.IsNullOrWhiteSpace(_automationAccount)
                 || string.IsNullOrWhiteSpace(runbookName))
             {
                 return new BadRequestObjectResult("Missing automation configuration environment variables.");
@@ -529,7 +531,7 @@ namespace DeployFunc
                 new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
 
             var jobName = Guid.NewGuid().ToString();
-            var requestUri = $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Automation/automationAccounts/{automationAccount}/jobs/{jobName}?api-version=2023-11-01";
+            var requestUri = $"https://management.azure.com/subscriptions/{_subscriptionId}/resourceGroups/{_automationResourceGroup}/providers/Microsoft.Automation/automationAccounts/{_automationAccount}/jobs/{jobName}?api-version=2023-11-01";
 
             var payload = new
             {
@@ -618,14 +620,11 @@ namespace DeployFunc
             var hostname = GetStringProperty(data, "Hostname", "hostname") ?? string.Empty;
             var port = GetIntProperty(data, "Port", "port");
 
-            string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
-            string resourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
-            string automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
-            const string runbookName = "automation-F4DMigrateInfrastructure.ps1";
+            const string runbookName = "automation-F4DMigrateInfrastructure";
 
-            if (string.IsNullOrWhiteSpace(subscriptionId)
-                || string.IsNullOrWhiteSpace(resourceGroup)
-                || string.IsNullOrWhiteSpace(automationAccount))
+            if (string.IsNullOrWhiteSpace(_subscriptionId)
+                || string.IsNullOrWhiteSpace(_automationResourceGroup)
+                || string.IsNullOrWhiteSpace(_automationAccount))
             {
                 return new BadRequestObjectResult("Missing automation configuration environment variables.");
             }
@@ -651,7 +650,7 @@ namespace DeployFunc
                 new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
 
             var jobName = Guid.NewGuid().ToString();
-            var requestUri = $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Automation/automationAccounts/{automationAccount}/jobs/{jobName}?api-version=2023-11-01";
+            var requestUri = $"https://management.azure.com/subscriptions/{_subscriptionId}/resourceGroups/{_automationResourceGroup}/providers/Microsoft.Automation/automationAccounts/{_automationAccount}/jobs/{jobName}?api-version=2023-11-01";
 
             var payload = new
             {
@@ -680,17 +679,136 @@ namespace DeployFunc
             return new OkObjectResult(new { jobId = jobName, status = "Submitted", details = responseContent });
         }
 
+        [Function("TriggerRunbook_F4DProvisionSite")]
+        public async Task<IActionResult> TriggerRunbook_F4DProvisionSite_Async(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "trigger-runbook-f4dSiteDeployment")] HttpRequest req)
+        {
+            var body = await new StreamReader(req.Body).ReadToEndAsync();
+            var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
+
+            static string? GetStringProperty(System.Text.Json.JsonElement element, params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    if (element.TryGetProperty(name, out var value) && value.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    {
+                        return value.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? value.GetString()
+                            : value.ToString();
+                    }
+                }
+                return null;
+            }
+
+            var isNewCustomer = GetStringProperty(data, "IsNewCustomer", "isNewCustomer") ?? string.Empty;
+            var isSetupNotification = GetStringProperty(data, "IsSetupNotification", "isSetupNotification") ?? "true";
+            var isSetupFilemanager = GetStringProperty(data, "IsSetupFilemanager", "isSetupFilemanager") ?? "false";
+            var regionPrefix = GetStringProperty(data, "RegionPrefix", "regionPrefix") ?? string.Empty;
+            var customerName = GetStringProperty(data, "CustomerName", "customerName") ?? string.Empty;
+            var siteName = GetStringProperty(data, "SiteName", "siteName") ?? string.Empty;
+            var port = GetStringProperty(data, "Port", "port") ?? string.Empty;
+            var sourceAddressPrefix = GetStringProperty(data, "SourceAddressPrefix", "sourceAddressPrefix") ?? string.Empty;
+            var meshSubnet = GetStringProperty(data, "MeshSubnet", "meshSubnet") ?? string.Empty;
+            var destinationAddressPrefix = GetStringProperty(data, "DestinationAddressPrefix", "destinationAddressPrefix") ?? string.Empty;
+            var parentZoneName = GetStringProperty(data, "ParentZoneName", "parentZoneName") ?? string.Empty;
+            var irisTemplateDbName = GetStringProperty(data, "IrisTemplateDBName", "irisTemplateDBName") ?? "Z-iris-masterdb-25-1-202501013";
+            var sesameTemplateDbName = GetStringProperty(data, "SesameTemplateDBName", "sesameTemplateDBName") ?? string.Empty;
+            var siteCode = GetStringProperty(data, "SiteCode", "siteCode") ?? string.Empty;
+            var resourceGroupName = GetStringProperty(data, "ResourceGroupName", "resourceGroupName") ?? "Q4D-ResourceGroup-1";
+            var subscription = GetStringProperty(data, "Subscription", "subscription") ?? "Fleet4D";
+            var keyVaultName = GetStringProperty(data, "KeyVaultName", "keyVaultName") ?? "eau1-f4d-prod-kv-sql01";
+
+            if (string.IsNullOrWhiteSpace(isNewCustomer)
+                || string.IsNullOrWhiteSpace(customerName)
+                || string.IsNullOrWhiteSpace(siteName)
+                || string.IsNullOrWhiteSpace(port)
+                || string.IsNullOrWhiteSpace(sourceAddressPrefix)
+                || string.IsNullOrWhiteSpace(destinationAddressPrefix)
+                || string.IsNullOrWhiteSpace(parentZoneName)
+                || string.IsNullOrWhiteSpace(siteCode))
+            {
+                return new BadRequestObjectResult("Missing required parameters: IsNewCustomer, CustomerName, SiteName, Port, SourceAddressPrefix, DestinationAddressPrefix, ParentZoneName, SiteCode.");
+            }
+
+            string runbookName = "automation-F4DSiteDeployment"
+                ?? GetStringProperty(data, "RunbookName", "runbookName")
+                ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(_subscriptionId)
+                || string.IsNullOrWhiteSpace(_automationResourceGroup)
+                || string.IsNullOrWhiteSpace(_automationAccount)
+                || string.IsNullOrWhiteSpace(runbookName))
+            {
+                return new BadRequestObjectResult("Missing automation configuration environment variables or runbook name (AUTOMATION_RUNBOOK_PROVISION_SITE_NAME). Also supports RunbookName in body.");
+            }
+
+            var parameters = new Dictionary<string, object>
+            {
+                { "IsNewCustomer", isNewCustomer },
+                { "IsSetupNotification", isSetupNotification },
+                { "IsSetupFilemanager", isSetupFilemanager },
+                { "RegionPrefix", regionPrefix },
+                { "CustomerName", customerName },
+                { "SiteName", siteName },
+                { "Port", port },
+                { "SourceAddressPrefix", sourceAddressPrefix },
+                { "DestinationAddressPrefix", destinationAddressPrefix },
+                { "ParentZoneName", parentZoneName },
+                { "IrisTemplateDBName", irisTemplateDbName },
+                { "SesameTemplateDBName", sesameTemplateDbName },
+                { "SiteCode", siteCode },
+                { "ResourceGroupName", resourceGroupName },
+                { "Subscription", subscription },
+                { "KeyVaultName", keyVaultName }
+            };
+
+            if (!string.IsNullOrWhiteSpace(meshSubnet))
+            {
+                parameters["MeshSubnet"] = meshSubnet;
+            }
+
+            var credential = new DefaultAzureCredential();
+            var token = await credential.GetTokenAsync(
+                new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
+
+            var jobName = Guid.NewGuid().ToString();
+            var requestUri = $"https://management.azure.com/subscriptions/{_subscriptionId}/resourceGroups/{_automationResourceGroup}/providers/Microsoft.Automation/automationAccounts/{_automationAccount}/jobs/{jobName}?api-version=2023-11-01";
+
+            var payload = new
+            {
+                properties = new
+                {
+                    runbook = new { name = runbookName },
+                    parameters
+                }
+            };
+
+            using var httpClient = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Put, requestUri)
+            {
+                Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+
+            using var response = await httpClient.SendAsync(request);
+            var responseContent = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to start provision site runbook. Status: {StatusCode}, Body: {Body}", response.StatusCode, responseContent);
+                return new ObjectResult(responseContent) { StatusCode = (int)response.StatusCode };
+            }
+
+            return new OkObjectResult(new { jobId = jobName, status = "Submitted", runbookName, details = responseContent });
+        }
+
         // HTTP trigger to check status of an Azure Automation job
         [Function("CheckRunbookJobStatus")]
         public async Task<IActionResult> CheckRunbookJobStatusAsync(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "check-runbook-job-status/{jobId}")] HttpRequest req, string jobId)
         {
-            string subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
-            string resourceGroup = Environment.GetEnvironmentVariable("AUTOMATION_RESOURCE_GROUP");
-            string automationAccount = Environment.GetEnvironmentVariable("AUTOMATION_ACCOUNT");
-            if (string.IsNullOrWhiteSpace(subscriptionId)
-                || string.IsNullOrWhiteSpace(resourceGroup)
-                || string.IsNullOrWhiteSpace(automationAccount)
+            if (string.IsNullOrWhiteSpace(_subscriptionId)
+                || string.IsNullOrWhiteSpace(_automationResourceGroup)
+                || string.IsNullOrWhiteSpace(_automationAccount)
                 || string.IsNullOrWhiteSpace(jobId))
             {
                 return new BadRequestObjectResult("Missing required parameters or environment variables.");
@@ -700,7 +818,7 @@ namespace DeployFunc
             var token = await credential.GetTokenAsync(
                 new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
 
-            var requestUri = $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Automation/automationAccounts/{automationAccount}/jobs/{jobId}?api-version=2023-11-01";
+            var requestUri = $"https://management.azure.com/subscriptions/{_subscriptionId}/resourceGroups/{_automationResourceGroup}/providers/Microsoft.Automation/automationAccounts/{_automationAccount}/jobs/{jobId}?api-version=2023-11-01";
 
             using var httpClient = new HttpClient();
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
