@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using DeployFront.Pages.ServiceMap;
 
 namespace DeployFront.Pages.Dashboard
 {
+    [Authorize(Policy = "CanWrite")]
     public class IndexModel : PageModel
     {
         private readonly ServiceMapDbContext _db;

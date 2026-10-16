@@ -41,8 +41,9 @@ namespace DeployFunc
         }
 
         [Function("Test")]
-        public IActionResult Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req)
+        public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req)
         {
+                 
             _logger.LogInformation("C# HTTP trigger function processed a request.");
             return new OkObjectResult("Welcome to Azure Functions");
         }
@@ -199,7 +200,7 @@ namespace DeployFunc
                         //existing.customer = customer;
                         existing.environment = environment;
                         existing.servicetype = servicetype;
-                        existing.active = active;
+                        //existing.active = active;
                         existing.modified = modified;
                         //existing.notes = notes;
                         _db.ServiceMaps.Update(existing);
@@ -271,7 +272,7 @@ namespace DeployFunc
                 try
                 {
                     
-                    var url = $"http://{service.hostname}/live/server";
+                    var url = $"https://{service.hostname}/live/server";
                     var response = await _httpClient.GetAsync(url);
                     if (!response.IsSuccessStatusCode)
                     {
@@ -358,10 +359,19 @@ namespace DeployFunc
 
             var probeResults = await Task.WhenAll(irisServices.Select(async service =>
             {
+               
                 try
                 {
                     var icontrolHost = service.hostname.Replace("iris", "icontrol", StringComparison.OrdinalIgnoreCase);
-                    var url = $"http://{icontrolHost}/live/server";
+                    var url = $"https://{icontrolHost}/live/server";
+
+                    _httpClient.DefaultRequestHeaders.Remove("Authorization");
+                    _httpClient.DefaultRequestHeaders.Add(
+                    "Authorization",
+                    $"BASIC Y21hX3NlcnZpY2U6RUFSVEhebGF1Z2hlZF5DSElMREhPT0Red2l0aGluXjk4"
+                    );
+
+
                     var response = await _httpClient.GetAsync(url);
                     if (!response.IsSuccessStatusCode)
                     {
@@ -679,7 +689,9 @@ namespace DeployFunc
             return new OkObjectResult(new { jobId = jobName, status = "Submitted", details = responseContent });
         }
 
-        [Function("TriggerRunbook_F4DProvisionSite")]
+
+
+            [Function("TriggerRunbook_F4DProvisionSite")]
         public async Task<IActionResult> TriggerRunbook_F4DProvisionSite_Async(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "trigger-runbook-f4dSiteDeployment")] HttpRequest req)
         {
@@ -711,7 +723,7 @@ namespace DeployFunc
             var meshSubnet = GetStringProperty(data, "MeshSubnet", "meshSubnet") ?? string.Empty;
             var destinationAddressPrefix = GetStringProperty(data, "DestinationAddressPrefix", "destinationAddressPrefix") ?? string.Empty;
             var parentZoneName = GetStringProperty(data, "ParentZoneName", "parentZoneName") ?? string.Empty;
-            var irisTemplateDbName = GetStringProperty(data, "IrisTemplateDBName", "irisTemplateDBName") ?? "Z-iris-masterdb-25-1-202501013";
+            var irisTemplateDbName = GetStringProperty(data, "IrisTemplateDBName", "irisTemplateDBName") ?? "Z-iris-masterdb-26-1-202604101";
             var sesameTemplateDbName = GetStringProperty(data, "SesameTemplateDBName", "sesameTemplateDBName") ?? string.Empty;
             var siteCode = GetStringProperty(data, "SiteCode", "siteCode") ?? string.Empty;
             var resourceGroupName = GetStringProperty(data, "ResourceGroupName", "resourceGroupName") ?? "Q4D-ResourceGroup-1";

@@ -67,7 +67,7 @@
             <th>Instance</th>
             <th class="col-sql">SQL Hostname</th>
             <th>DB Name</th>
-            <th class="col-hostname">IRIS Hostname</th>
+            <th class="col-hostname">IRIS/Filemanager Hostname</th>
             <th>Customer</th>
             <th>Site</th>
             <th>Notes</th>
@@ -116,7 +116,7 @@
                 <tr class="collapse @regionId @customerId @(!row.ServiceMap.active ? "service-map-row-inactive" : "")">
                     <td>
                         @{
-                            var hostUrl = $"{row.ServiceMap.protocol}://{row.ServiceMap.hostname}";
+                            var hostUrl = $"https://{row.ServiceMap.hostname}";
                             if (row.ServiceMap.port > 0 && row.ServiceMap.port != 80 && row.ServiceMap.port != 443)
                             {
                                 hostUrl = $"{hostUrl}";
@@ -249,7 +249,7 @@
             <input type="text" class="form-control" id="edit-site" name="site" />
           </div>
           <div class="mb-3">
-            <label for="edit-irishostname" class="form-label">Iris Hostname</label>
+            <label for="edit-irishostname" class="form-label">Iris/filemanager Hostname</label>
             <input type="text" class="form-control" id="edit-irishostname" name="irishostname" />
           </div>
           <div class="mb-3">
