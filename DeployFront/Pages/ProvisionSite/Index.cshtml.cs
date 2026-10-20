@@ -1,5 +1,6 @@
 using Azure.Core;
 using Azure.Identity;
+using DeployFront.Pages.ServiceMap;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -14,6 +15,7 @@ namespace DeployFront.Pages.ProvisionSite;
 [Authorize(Policy = "CanWrite")]
 public class IndexModel : PageModel
 {
+    private readonly ServiceMapDbContext _db;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly IAuthorizationService _authorizationService;
@@ -31,11 +33,13 @@ public class IndexModel : PageModel
     public string? ErrorMessage { get; set; }
 
     public IndexModel(
+        ServiceMapDbContext db,
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration,
         IAuthorizationService authorizationService,
         ILogger<IndexModel> logger)
     {
+        _db = db;
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
         _authorizationService = authorizationService;
@@ -120,7 +124,27 @@ public class IndexModel : PageModel
             KeyVaultName = Input.KeyVaultName
         };
 
+      
         var client = _httpClientFactory.CreateClient();
+
+        var requestUrl = $"{baseUrl}/trigger-runbook-f4dSiteDeployment";
+        var requestBody = JsonSerializer.Serialize(payload);
+
+        async Task LogUpgradeActionAsync(int? statusCode, string? resultBody)
+        {
+            _db.UpgradeActionLogs.Add(new UpgradeActionLog
+            {
+                requestUrl = requestUrl,
+                requestType = HttpMethod.Post.Method,
+                requestBody = requestBody,
+                result = resultBody,
+                statusCode = statusCode,
+                createdAt = DateTime.UtcNow,
+                userName = User.FindFirst("preferred_username")?.Value ?? User.Identity?.Name,
+            });
+
+            await _db.SaveChangesAsync();
+        }
 
         using (var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/insertfileshareentry")
         {
@@ -139,7 +163,8 @@ public class IndexModel : PageModel
             }
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/trigger-runbook-f4dSiteDeployment")
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl)
         {
             Content = JsonContent.Create(payload)
         };

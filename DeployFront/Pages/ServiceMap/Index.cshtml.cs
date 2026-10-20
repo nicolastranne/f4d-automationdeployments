@@ -237,6 +237,7 @@ namespace DeployFront.Pages.ServiceMap
 
             var requestUrl = $"{baseUrl}/trigger-runbook-f4dupdateservices";
             var requestBody = JsonSerializer.Serialize(payload);
+           
 
             async Task LogUpgradeActionAsync(int? statusCode, string? resultBody)
             {
@@ -247,7 +248,8 @@ namespace DeployFront.Pages.ServiceMap
                     requestBody = requestBody,
                     result = resultBody,
                     statusCode = statusCode,
-                    createdAt = DateTime.UtcNow
+                    createdAt = DateTime.UtcNow,
+                    userName = User.FindFirst("preferred_username")?.Value ?? User.Identity?.Name
                 });
 
                 await _db.SaveChangesAsync();
@@ -354,7 +356,8 @@ namespace DeployFront.Pages.ServiceMap
                     requestBody = requestBody,
                     result = resultBody,
                     statusCode = statusCode,
-                    createdAt = DateTime.UtcNow
+                    createdAt = DateTime.UtcNow,
+                    userName = User.FindFirst("preferred_username")?.Value ?? User.Identity?.Name,
                 });
 
                 await _db.SaveChangesAsync();

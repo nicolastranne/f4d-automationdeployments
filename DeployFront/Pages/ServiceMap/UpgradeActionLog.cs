@@ -30,5 +30,9 @@ namespace DeployFront.Pages.ServiceMap
 
         [Column("CreatedAt")]
         public DateTime createdAt { get; set; } = DateTime.UtcNow;
+
+        [Column("UserName")]
+        [MaxLength(256)]
+        public string? userName { get; set; }
     }
 }
