@@ -1,23 +1,24 @@
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Extensions.Logging;
-using Azure.Storage.Files.Shares;
-using Azure.Storage.Files.Shares.Models;
-using System;
-using System.Threading.Tasks;
-using Microsoft.Data.SqlClient;
-using System.Globalization;
-using Microsoft.EntityFrameworkCore;
-using System.Collections.Generic;
+using Azure;
+using Azure.Core;
 using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.Automation;
 using Azure.ResourceManager.Automation.Models;
-using Azure.Core;
+using Azure.Storage.Files.Shares;
+using Azure.Storage.Files.Shares.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Threading.Tasks;
 
 
 namespace DeployFunc
@@ -845,6 +846,214 @@ namespace DeployFunc
             }
 
             return new OkObjectResult(System.Text.Json.JsonDocument.Parse(responseContent).RootElement);
+        }
+
+        private static async Task<string> GetShareFileTextAsync(ShareFileClient file)
+        {
+            var download = await file.DownloadAsync();
+            using var reader = new System.IO.StreamReader(download.Value.Content);
+            return await reader.ReadToEndAsync();
+        }
+
+        private static async Task SetShareFileTextAsync(ShareFileClient file, string content)
+        {
+            var bytes = Encoding.UTF8.GetBytes(content);
+            await file.DeleteIfExistsAsync();
+            await file.CreateAsync(bytes.Length);
+
+            using var stream = new System.IO.MemoryStream(bytes);
+            stream.Position = 0;
+
+            await file.UploadRangeAsync(new HttpRange(0, bytes.Length), stream);
+        }
+
+        private static async Task EnsureShareDirectoryPathAsync(ShareDirectoryClient rootDirectory, string directoryPath)
+        {
+            var normalizedPath = (directoryPath ?? string.Empty).Replace('\\', '/').Trim('/');
+
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                return;
+            }
+
+            var currentDirectory = rootDirectory;
+            foreach (var part in normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                currentDirectory = currentDirectory.GetSubdirectoryClient(part);
+                await currentDirectory.CreateIfNotExistsAsync();
+            }
+        }
+
+        // HTTP trigger to insert a new mapping entry into the Azure File Share
+        [Function("FileShareInsertEntryFunction")]
+        public async Task<IActionResult> RunFileShareInsertEntryHttpAsync(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "insertfileshareentry")] HttpRequest req)
+        {
+            static string? GetStringProperty(System.Text.Json.JsonElement element, params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    if (element.TryGetProperty(name, out var value) && value.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    {
+                        return value.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? value.GetString()
+                            : value.ToString();
+                    }
+                }
+
+                return null;
+            }
+
+            static bool GetBoolPropertyOrDefault(System.Text.Json.JsonElement element, bool defaultValue, params string[] names)
+            {
+                foreach (var name in names)
+                {
+                    if (!element.TryGetProperty(name, out var value) || value.ValueKind == System.Text.Json.JsonValueKind.Null)
+                    {
+                        continue;
+                    }
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.True || value.ValueKind == System.Text.Json.JsonValueKind.False)
+                    {
+                        return value.GetBoolean();
+                    }
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var s = value.GetString();
+                        if (bool.TryParse(s, out var b)) return b;
+                        if (s == "1") return true;
+                        if (s == "0") return false;
+                    }
+
+                    if (value.ValueKind == System.Text.Json.JsonValueKind.Number && value.TryGetInt32(out var i))
+                    {
+                        return i != 0;
+                    }
+                }
+
+                return defaultValue;
+            }
+
+            var body = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return new BadRequestObjectResult("Request body is required.");
+            }
+
+            var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
+
+            var newCustomer = GetBoolPropertyOrDefault(data, false, "NewCustomer", "newCustomer");
+            var setupFileManager = GetBoolPropertyOrDefault(data, false, "SetupFileManager", "setupFileManager");
+            var regionPrefix = GetStringProperty(data, "RegionPrefix", "regionPrefix") ?? string.Empty;
+            var customerName = GetStringProperty(data, "CustomerName", "customerName") ?? string.Empty;
+            var siteName = GetStringProperty(data, "SiteName", "siteName") ?? string.Empty;
+            var port = GetStringProperty(data, "Port", "port") ?? string.Empty;
+            var parentZoneName = GetStringProperty(data, "ParentZoneName", "parentZoneName") ?? string.Empty;
+            var destinationAddressPrefix = GetStringProperty(data, "DestinationAddressPrefix", "destinationAddressPrefix") ?? string.Empty;
+            var siteCode = GetStringProperty(data, "SiteCode", "siteCode") ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(customerName)
+                || string.IsNullOrWhiteSpace(siteName)
+                || string.IsNullOrWhiteSpace(port)
+                || string.IsNullOrWhiteSpace(parentZoneName)
+                || string.IsNullOrWhiteSpace(destinationAddressPrefix)
+                || string.IsNullOrWhiteSpace(siteCode))
+            {
+                return new BadRequestObjectResult(
+                    "Missing required parameters: CustomerName, SiteName, Port, ParentZoneName, DestinationAddressPrefix, SiteCode.");
+            }
+
+            var commonPort = port.Length >= 3 ? port.Substring(port.Length - 3) : port;
+            var lowerCustomerName = customerName.ToLowerInvariant().Replace(" ", "");
+            var lowerSiteName = siteName.ToLowerInvariant().Replace(" ", "");
+
+            var contentLines = new List<string>();
+
+            if (newCustomer)
+            {
+                var commonCustomerName = lowerCustomerName;
+                if (!string.IsNullOrWhiteSpace(regionPrefix))
+                {
+                    commonCustomerName = $"{lowerCustomerName}-{regionPrefix.ToLowerInvariant().Replace(" ", "")}";
+                }
+
+                contentLines.Add($"# {customerName} - Common");
+                contentLines.Add($"{commonCustomerName}-identity.{parentZoneName} https://{destinationAddressPrefix}:24{commonPort}");
+                contentLines.Add($"{commonCustomerName}-goline.{parentZoneName} http://{destinationAddressPrefix}:23{commonPort}");
+            }
+
+            contentLines.Add($"#{customerName} - {siteName}");
+            contentLines.Add($"{siteCode}-ireport.{parentZoneName} http://{destinationAddressPrefix}:21{commonPort}");
+            contentLines.Add($"{siteCode}-icontrol.{parentZoneName} http://{destinationAddressPrefix}:20{commonPort}");
+            contentLines.Add($"{siteCode}-iris.{parentZoneName} http://{destinationAddressPrefix}:28{commonPort}");
+
+            if (setupFileManager)
+            {
+                contentLines.Add($"{siteCode}-filemanager.{parentZoneName} http://{destinationAddressPrefix}:27{commonPort}");
+            }
+
+            var mappingEntry = string.Join("\r\n", contentLines);
+
+            string connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? string.Empty;
+            string shareName = Environment.GetEnvironmentVariable("FileShareName") ?? "gwshareddata";
+            string directoryName = Environment.GetEnvironmentVariable("FileShareDirectory") ?? "etc/haproxy/maps";
+            string fileName = Environment.GetEnvironmentVariable("FileShareFileName") ?? "services.map";
+            string backupFilePath = "etc/haproxy/maps/services_backup.map";
+
+            try
+            {
+                var share = new ShareClient(connectionString, shareName);
+
+                var directory = share.GetDirectoryClient(directoryName);
+                var file = directory.GetFileClient(fileName);
+
+                if (!await file.ExistsAsync())
+                {
+                    return new NotFoundObjectResult($"File not found: {fileName}");
+                }
+
+                var contentText = await GetShareFileTextAsync(file);
+
+                // Backup first, like the PowerShell version.
+                var backupDirectoryPath = System.IO.Path.GetDirectoryName(backupFilePath)?.Replace('\\', '/') ?? string.Empty;
+                var backupFileName = System.IO.Path.GetFileName(backupFilePath);
+
+                var backupDirectory = share.GetDirectoryClient(backupDirectoryPath);
+                await EnsureShareDirectoryPathAsync(directory, backupDirectoryPath);
+
+                var backupFile = backupDirectory.GetFileClient(backupFileName);
+                await SetShareFileTextAsync(backupFile, contentText);
+
+                // Prevent duplicate insertion.
+                var mappingCheck = $"{siteCode}-ireport.{parentZoneName}";
+                if (contentText.Contains(mappingCheck, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ConflictObjectResult($"Mapping already exists: {mappingCheck}");
+                }
+
+                var updatedContent = string.IsNullOrWhiteSpace(contentText)
+                    ? mappingEntry
+                    : $"{contentText.TrimEnd()}\r\n{mappingEntry}";
+
+                await SetShareFileTextAsync(file, updatedContent);
+
+                return new OkObjectResult(new
+                {
+                    inserted = true,
+                    fileName,
+                    backupFilePath,
+                    mappingCheck
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error inserting mapping into Azure File Share");
+                return new ObjectResult($"Error inserting mapping: {ex.Message}")
+                {
+                    StatusCode = 500
+                };
+            }
         }
     }
 }

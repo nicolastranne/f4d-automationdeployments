@@ -43,6 +43,11 @@ else
             <input asp-for="Input.RegionPrefix" class="form-control" placeholder="US or EU (blank for AUS)" />
         </div>
         <div class="mb-3">
+            <label asp-for="Input.CountryCode" class="form-label">CountryCode (optional 2 letter country code IBAN)</label>
+            <input asp-for="Input.CountryCode" class="form-control" placeholder="au or in" />
+        </div>
+
+        <div class="mb-3">
             <label asp-for="Input.CustomerName" class="form-label">CustomerName (required)</label>
             <input asp-for="Input.CustomerName" class="form-control" placeholder="Heidelberg" />
             <span asp-validation-for="Input.CustomerName" class="text-danger"></span>

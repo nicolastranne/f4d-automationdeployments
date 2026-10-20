@@ -590,11 +590,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     var row = editButton.closest('tr');
                     if (row) {
                         var cells = row.querySelectorAll('td');
-                        if (cells.length >= 14) {
-                            cells[10].textContent = editIrisHostname.value || '';
-                            cells[11].textContent = editCustomer.value || '';
-                            cells[12].textContent = editSite.value || '';
-                            cells[13].textContent = editNotes.value || '';
+                        if (cells.length >= 13) {
+                            cells[9].textContent = editIrisHostname.value || '';
+                            cells[10].textContent = editCustomer.value || '';
+                            cells[11].textContent = editSite.value || '';
+                            cells[12].textContent = editNotes.value || '';
                         }
 
                         row.classList.toggle('service-map-row-inactive', !editActive.checked);

@@ -56,6 +56,7 @@ public class IndexModel : PageModel
         if (string.IsNullOrWhiteSpace(Input.ResourceGroupName)) Input.ResourceGroupName = "Q4D-ResourceGroup-1";
         if (string.IsNullOrWhiteSpace(Input.Subscription)) Input.Subscription = "Fleet4D";
         if (string.IsNullOrWhiteSpace(Input.KeyVaultName)) Input.KeyVaultName = "eau1-f4d-prod-kv-sql01";
+        if (string.IsNullOrWhiteSpace(Input.CountryCode)) Input.CountryCode = "au";
     }
 
     public async Task<IActionResult> OnPostAsync()
@@ -96,12 +97,14 @@ public class IndexModel : PageModel
             return Page();
         }
 
+       
         var payload = new
         {
             IsNewCustomer = Input.IsNewCustomer,
             IsSetupNotification = Input.IsSetupNotification,
             IsSetupFilemanager = Input.IsSetupFilemanager,
             RegionPrefix = Input.RegionPrefix,
+            CountryCode = Input.CountryCode,
             CustomerName = Input.CustomerName,
             SiteName = Input.SiteName,
             Port = Input.Port,
@@ -118,6 +121,24 @@ public class IndexModel : PageModel
         };
 
         var client = _httpClientFactory.CreateClient();
+
+        using (var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/insertfileshareentry")
+        {
+            Content = JsonContent.Create(payload)
+        })
+        {
+            insertRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var insertResponse = await client.SendAsync(insertRequest);
+            var insertBody = await insertResponse.Content.ReadAsStringAsync();
+
+            if (!insertResponse.IsSuccessStatusCode)
+            {
+                ErrorMessage = $"Failed to insert file share entry: {(int)insertResponse.StatusCode} {insertResponse.ReasonPhrase}. {insertBody}";
+                return Page();
+            }
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/trigger-runbook-f4dSiteDeployment")
         {
             Content = JsonContent.Create(payload)
@@ -187,6 +208,7 @@ public class IndexModel : PageModel
         public string? IsSetupFilemanager { get; set; } = "false";
 
         public string? RegionPrefix { get; set; } = string.Empty;
+        public string? CountryCode { get; set; } = string.Empty;
 
         [Required]
         public string CustomerName { get; set; } = string.Empty;
