@@ -145,6 +145,7 @@ public class IndexModel : PageModel
 
             await _db.SaveChangesAsync();
         }
+      
 
         using (var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/insertfileshareentry")
         {
@@ -172,6 +173,8 @@ public class IndexModel : PageModel
 
         var response = await client.SendAsync(request);
         var body = await response.Content.ReadAsStringAsync();
+
+        await LogUpgradeActionAsync((int)response.StatusCode, body);
 
         if (!response.IsSuccessStatusCode)
         {
