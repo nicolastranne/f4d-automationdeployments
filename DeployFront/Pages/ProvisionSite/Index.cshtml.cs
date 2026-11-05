@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -54,8 +55,9 @@ public class IndexModel : PageModel
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(Input.IsSetupNotification)) Input.IsSetupNotification = "true";
-        if (string.IsNullOrWhiteSpace(Input.IsSetupFilemanager)) Input.IsSetupFilemanager = "false";
+        Input.IsSetupNotification = true;
+
+        Input.IsSetupFilemanager = false;
         if (string.IsNullOrWhiteSpace(Input.IrisTemplateDBName)) Input.IrisTemplateDBName = "Z-iris-masterdb-25-1-202501013";
         if (string.IsNullOrWhiteSpace(Input.ResourceGroupName)) Input.ResourceGroupName = "Q4D-ResourceGroup-1";
         if (string.IsNullOrWhiteSpace(Input.Subscription)) Input.Subscription = "Fleet4D";
@@ -127,24 +129,7 @@ public class IndexModel : PageModel
       
         var client = _httpClientFactory.CreateClient();
 
-        var requestUrl = $"{baseUrl}/trigger-runbook-f4dSiteDeployment";
-        var requestBody = JsonSerializer.Serialize(payload);
-
-        async Task LogUpgradeActionAsync(int? statusCode, string? resultBody)
-        {
-            _db.UpgradeActionLogs.Add(new UpgradeActionLog
-            {
-                requestUrl = requestUrl,
-                requestType = HttpMethod.Post.Method,
-                requestBody = requestBody,
-                result = resultBody,
-                statusCode = statusCode,
-                createdAt = DateTime.UtcNow,
-                userName = User.FindFirst("preferred_username")?.Value ?? User.Identity?.Name,
-            });
-
-            await _db.SaveChangesAsync();
-        }
+       
       
 
         using (var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/insertfileshareentry")
@@ -164,6 +149,24 @@ public class IndexModel : PageModel
             }
         }
 
+        var requestUrl = $"{baseUrl}/trigger-runbook-f4dSiteDeployment";
+        var requestBody = JsonSerializer.Serialize(payload);
+
+        async Task LogUpgradeActionAsync(int? statusCode, string? resultBody)
+        {
+            _db.UpgradeActionLogs.Add(new UpgradeActionLog
+            {
+                requestUrl = requestUrl,
+                requestType = HttpMethod.Post.Method,
+                requestBody = requestBody,
+                result = resultBody,
+                statusCode = statusCode,
+                createdAt = DateTime.UtcNow,
+                userName = User.FindFirst("preferred_username")?.Value ?? User.Identity?.Name,
+            });
+
+            await _db.SaveChangesAsync();
+        }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl)
         {
@@ -226,26 +229,36 @@ public class IndexModel : PageModel
         }
     }
 
-    public class ProvisionSiteInputModel
+    public class ProvisionSiteInputModel : IValidatableObject
     {
-        [Required]
-        public string IsNewCustomer { get; set; } = string.Empty;
+        [Display(Name = "New customer")]
+        public bool IsNewCustomer { get; set; }
 
-        public string? IsSetupNotification { get; set; } = "true";
+        [Display(Name = "Set up notifications")]
+        public bool IsSetupNotification { get; set; } = true;
 
-        public string? IsSetupFilemanager { get; set; } = "false";
+        [Display(Name = "Set up File Manager")]
+        public bool IsSetupFilemanager { get; set; }
 
+        [RegularExpression("^(US|EU)?$", ErrorMessage = "Region prefix must be US, EU, or blank.")]
         public string? RegionPrefix { get; set; } = string.Empty;
+
+        [RegularExpression("^[A-Za-z]{2}$", ErrorMessage = "Country code must be a two-letter code.")]
         public string? CountryCode { get; set; } = string.Empty;
 
         [Required]
+        [StringLength(100)]
+        [RegularExpression("^[A-Za-z0-9 .-]+$", ErrorMessage = "Customer name may contain only letters, numbers, spaces, dots, and hyphens.")]
         public string CustomerName { get; set; } = string.Empty;
 
         [Required]
+        [StringLength(100)]
+        [RegularExpression("^[A-Za-z0-9 .-]+$", ErrorMessage = "Site name may contain only letters, numbers, spaces, dots, and hyphens.")]
         public string SiteName { get; set; } = string.Empty;
 
         [Required]
-        public string Port { get; set; } = string.Empty;
+        [Range(1, 65535, ErrorMessage = "Port must be between 1 and 65535.")]
+        public int? Port { get; set; }
 
         [Required]
         public string SourceAddressPrefix { get; set; } = string.Empty;
@@ -256,13 +269,15 @@ public class IndexModel : PageModel
         public string DestinationAddressPrefix { get; set; } = string.Empty;
 
         [Required]
+        [RegularExpression("^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$", ErrorMessage = "Enter a valid domain name, such as fleet4d.net.")]
         public string ParentZoneName { get; set; } = string.Empty;
 
-        public string? IrisTemplateDBName { get; set; } = "Z-iris-masterdb-25-1-202501013";
+        public string? IrisTemplateDBName { get; set; } = "Z-iris-masterdb-26-1-202604101";
 
         public string? SesameTemplateDBName { get; set; } = string.Empty;
 
         [Required]
+        [RegularExpression("^[A-Za-z0-9-]{2,20}$", ErrorMessage = "Site code must be 2-20 letters, numbers, or hyphens.")]
         public string SiteCode { get; set; } = string.Empty;
 
         public string? ResourceGroupName { get; set; } = "Q4D-ResourceGroup-1";
@@ -270,5 +285,33 @@ public class IndexModel : PageModel
         public string? Subscription { get; set; } = "Fleet4D";
 
         public string? KeyVaultName { get; set; } = "eau1-f4d-prod-kv-sql01";
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (!TryParseIpv4Cidr(SourceAddressPrefix))
+            {
+                yield return new ValidationResult(
+                    "Subnet must be an IPv4 CIDR range, such as 10.128.137.0/24.",
+                    [nameof(SourceAddressPrefix)]);
+            }
+
+            if (!IPAddress.TryParse(DestinationAddressPrefix, out var destinationAddress)
+                || destinationAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                yield return new ValidationResult(
+                    "Target VM address must be an IPv4 address, such as 10.254.1.9.",
+                    [nameof(DestinationAddressPrefix)]);
+            }
+        }
+
+        private static bool TryParseIpv4Cidr(string? value)
+        {
+            var parts = value?.Split('/', StringSplitOptions.TrimEntries);
+            return parts is { Length: 2 }
+                && IPAddress.TryParse(parts[0], out var address)
+                && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                && int.TryParse(parts[1], out var prefixLength)
+                && prefixLength is >= 0 and <= 32;
+        }
     }
 }

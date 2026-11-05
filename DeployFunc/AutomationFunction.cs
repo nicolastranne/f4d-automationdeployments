@@ -943,8 +943,8 @@ namespace DeployFunc
 
             var data = System.Text.Json.JsonDocument.Parse(body).RootElement;
 
-            var newCustomer = GetBoolPropertyOrDefault(data, false, "NewCustomer", "newCustomer");
-            var setupFileManager = GetBoolPropertyOrDefault(data, false, "SetupFileManager", "setupFileManager");
+            var newCustomer = GetBoolPropertyOrDefault(data, false, "NewCustomer", "isNewCustomer");
+            var setupFileManager = GetBoolPropertyOrDefault(data, false, "SetupFileManager", "isSetupFilemanager");
             var regionPrefix = GetStringProperty(data, "RegionPrefix", "regionPrefix") ?? string.Empty;
             var customerName = GetStringProperty(data, "CustomerName", "customerName") ?? string.Empty;
             var siteName = GetStringProperty(data, "SiteName", "siteName") ?? string.Empty;

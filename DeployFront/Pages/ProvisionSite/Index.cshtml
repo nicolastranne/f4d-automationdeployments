@@ -21,51 +21,60 @@
 }
 else
 {
-    <form method="post" class="col-md-6">
+    <form method="post" class="col-md-6" id="provision-form">
         <div asp-validation-summary="ModelOnly" class="text-danger mb-2"></div>
 
-        <div class="mb-3">
-            <label asp-for="Input.IsNewCustomer" class="form-label">IsNewCustomer (required)</label>
-            <input asp-for="Input.IsNewCustomer" class="form-control" placeholder="true or false" />
+        <div class="form-check mb-3">
+            <input asp-for="Input.IsNewCustomer" class="form-check-input" />
+            <label asp-for="Input.IsNewCustomer" class="form-check-label">Is New customer?</label>
             <span asp-validation-for="Input.IsNewCustomer" class="text-danger"></span>
         </div>
-        <div class="mb-3">
-            <label asp-for="Input.IsSetupNotification" class="form-label">IsSetupNotification (optional)</label>
-            <input asp-for="Input.IsSetupNotification" class="form-control" placeholder="true" />
+        <div class="form-check mb-3">
+            <input asp-for="Input.IsSetupNotification" class="form-check-input" />
+            <label asp-for="Input.IsSetupNotification" class="form-check-label">Set up notifications?</label>
+            <span asp-validation-for="Input.IsSetupNotification" class="text-danger"></span>
         </div>
-        <div class="mb-3">
-            <label asp-for="Input.IsSetupFilemanager" class="form-label">IsSetupFilemanager (optional)</label>
-            <input asp-for="Input.IsSetupFilemanager" class="form-control" placeholder="false" />
+        <div class="form-check mb-3">
+            <input asp-for="Input.IsSetupFilemanager" class="form-check-input" />
+            <label asp-for="Input.IsSetupFilemanager" class="form-check-label">Set up File Manager</label>
+            <span asp-validation-for="Input.IsSetupFilemanager" class="text-danger"></span>
         </div>
 
         <div class="mb-3">
-            <label asp-for="Input.RegionPrefix" class="form-label">RegionPrefix (optional)</label>
-            <input asp-for="Input.RegionPrefix" class="form-control" placeholder="US or EU (blank for AUS)" />
+            <label asp-for="Input.RegionPrefix" class="form-label">Deployment Region</label>
+            <select asp-for="Input.RegionPrefix" class="form-select">
+                <option value="">AU</option>
+                <option value="US">US</option>
+                <option value="EU">EU</option>
+            </select>
+            <span asp-validation-for="Input.RegionPrefix" class="text-danger"></span>
         </div>
         <div class="mb-3">
-            <label asp-for="Input.CountryCode" class="form-label">CountryCode (optional 2 letter country code IBAN)</label>
-            <input asp-for="Input.CountryCode" class="form-control" placeholder="au or in" />
+            <label asp-for="Input.CountryCode" class="form-label">Country code</label>
+            <input asp-for="Input.CountryCode" class="form-control" placeholder="au" maxlength="2" pattern="[A-Za-z]{2}"  />
+            <div class="form-text">Two-letter IBAN country code.</div>
+            <span asp-validation-for="Input.CountryCode" class="text-danger"></span>
         </div>
 
         <div class="mb-3">
             <label asp-for="Input.CustomerName" class="form-label">CustomerName (required)</label>
-            <input asp-for="Input.CustomerName" class="form-control" placeholder="Heidelberg" />
+            <input asp-for="Input.CustomerName" class="form-control" placeholder="Heidelberg" maxlength="100" pattern="[A-Za-z0-9 .-]+" autocomplete="organization" />
             <span asp-validation-for="Input.CustomerName" class="text-danger"></span>
         </div>
         <div class="mb-3">
             <label asp-for="Input.SiteName" class="form-label">SiteName (required)</label>
-            <input asp-for="Input.SiteName" class="form-control" placeholder="Lysterfield" />
+            <input asp-for="Input.SiteName" class="form-control" placeholder="Lysterfield" maxlength="100" pattern="[A-Za-z0-9 .-]+" />
             <span asp-validation-for="Input.SiteName" class="text-danger"></span>
         </div>
 
         <div class="mb-3">
             <label asp-for="Input.Port" class="form-label">Port (required)</label>
-            <input asp-for="Input.Port" class="form-control" placeholder="20123" />
+            <input asp-for="Input.Port" class="form-control" type="number" placeholder="20000" min="1" max="20999" step="1" inputmode="numeric" />
             <span asp-validation-for="Input.Port" class="text-danger"></span>
         </div>
         <div class="mb-3">
             <label asp-for="Input.SourceAddressPrefix" class="form-label">Subnet (required)</label>
-            <input asp-for="Input.SourceAddressPrefix" class="form-control" placeholder="10.128.137.0/24" />
+            <input asp-for="Input.SourceAddressPrefix" class="form-control" placeholder="10.128.137.0/24" inputmode="decimal" />
             <span asp-validation-for="Input.SourceAddressPrefix" class="text-danger"></span>
         </div>
         @* <div class="mb-3"> 
@@ -75,7 +84,8 @@ else
 
         <div class="mb-3">
             <label asp-for="Input.DestinationAddressPrefix" class="form-label">Target VM ip addr (required)</label>
-            <input asp-for="Input.DestinationAddressPrefix" class="form-control" placeholder="10.254.1.9" />
+            <input asp-for="Input.DestinationAddressPrefix" class="form-control" placeholder="10.254.1.9" inputmode="decimal" />
+            <div class="form-text">IPv4 address of the target VM.</div>
             <span asp-validation-for="Input.DestinationAddressPrefix" class="text-danger"></span>
         </div>
         <div class="mb-3">
@@ -85,7 +95,7 @@ else
         </div>
         <div class="mb-3">
             <label asp-for="Input.SiteCode" class="form-label">SiteCode (required)</label>
-            <input asp-for="Input.SiteCode" class="form-control" placeholder="empr" />
+            <input asp-for="Input.SiteCode" class="form-control" placeholder="empr" minlength="4" maxlength="5" pattern="[A-Za-z0-9-]+" />
             <span asp-validation-for="Input.SiteCode" class="text-danger"></span>
         </div>
 
@@ -111,12 +121,14 @@ else
             <input asp-for="Input.KeyVaultName" class="form-control" placeholder="eau1-f4d-prod-kv-sql01" />
         </div>*@
 
+
         <div class="mt-3">
-            <button type="submit" class="btn btn-primary">Deploy Infra</button>
+            <button type="submit" class="btn btn-primary" >Deploy Infra</button>
         </div>
     </form>
 }
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    
 }
