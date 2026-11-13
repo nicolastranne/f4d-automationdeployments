@@ -14,6 +14,22 @@
 {
     <div class="alert alert-danger">@Model.ErrorMessage</div>
 }
+@if (!string.IsNullOrWhiteSpace(Model.RunbookJobId))
+{
+    <div id="runbook-output" class="card mb-3" data-output-url="@Url.Page("/ProvisionSite/Index", "RunbookOutput")" data-job-id="@Model.RunbookJobId">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <div>
+                    <h3 class="h5 mb-1">Runbook output</h3>
+                    <div class="small text-muted">Job ID: @Model.RunbookJobId</div>
+                    <div id="runbook-status" class="small">Status: Submitted</div>
+                </div>
+                <button id="show-runbook-output" type="button" class="btn btn-outline-primary">View runbook output</button>
+            </div>
+            <pre id="runbook-output-content" class="mt-3 mb-0 p-3 bg-body-secondary border rounded d-none text-break text-wrap"></pre>
+        </div>
+    </div>
+}
 
 @if (!Model.CanWrite)
 {
@@ -130,5 +146,51 @@ else
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
-    
+
+    <script>
+        (() => {
+            const container = document.getElementById("runbook-output");
+            if (!container) {
+                return;
+            }
+
+            const button = document.getElementById("show-runbook-output");
+            const status = document.getElementById("runbook-status");
+            const output = document.getElementById("runbook-output-content");
+            const jobId = container.dataset.jobId;
+            const outputUrl = container.dataset.outputUrl;
+            const activeStatuses = new Set(["New", "Activating", "Queued", "Starting", "Running", "Resuming", "Suspending", "Stopping"]);
+            let pollTimer;
+
+            async function loadOutput() {
+                button.disabled = true;
+                try {
+                    const response = await fetch(`${outputUrl}&jobId=${encodeURIComponent(jobId)}`, {
+                        credentials: "same-origin"
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Unable to retrieve runbook output.");
+                    }
+
+                    const result = await response.json();
+                    status.textContent = `Status: ${result.status ?? "Unknown"}`;
+                    output.textContent = result.output ?? "No output is available yet.";
+                    output.classList.remove("d-none");
+
+                    window.clearTimeout(pollTimer);
+                    if (activeStatuses.has(result.status)) {
+                        pollTimer = window.setTimeout(loadOutput, 5000);
+                    }
+                } catch (error) {
+                    status.textContent = error.message;
+                    output.classList.remove("d-none");
+                } finally {
+                    button.disabled = false;
+                }
+            }
+
+            button.addEventListener("click", loadOutput);
+        })();
+    </script>
 }

@@ -4,6 +4,7 @@ using DeployFront.Pages.ServiceMap;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net;
@@ -32,6 +33,9 @@ public class IndexModel : PageModel
 
     [TempData]
     public string? ErrorMessage { get; set; }
+
+    [TempData]
+    public string? RunbookJobId { get; set; }
 
     public IndexModel(
         ServiceMapDbContext db,
@@ -152,7 +156,7 @@ public class IndexModel : PageModel
         var requestUrl = $"{baseUrl}/trigger-runbook-f4dSiteDeployment";
         var requestBody = JsonSerializer.Serialize(payload);
 
-        async Task LogUpgradeActionAsync(int? statusCode, string? resultBody)
+        async Task LogUpgradeActionAsync(int? statusCode, string? resultBody, string? jobId)
         {
             _db.UpgradeActionLogs.Add(new UpgradeActionLog
             {
@@ -161,6 +165,7 @@ public class IndexModel : PageModel
                 requestBody = requestBody,
                 result = resultBody,
                 statusCode = statusCode,
+                jobId = jobId,
                 createdAt = DateTime.UtcNow,
                 userName = User.FindFirst("preferred_username")?.Value ?? User.Identity?.Name,
             });
@@ -176,8 +181,21 @@ public class IndexModel : PageModel
 
         var response = await client.SendAsync(request);
         var body = await response.Content.ReadAsStringAsync();
+        string? jobId = null;
 
-        await LogUpgradeActionAsync((int)response.StatusCode, body);
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                jobId = doc.RootElement.TryGetProperty("jobId", out var jobIdProp) ? jobIdProp.GetString() : null;
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        await LogUpgradeActionAsync((int)response.StatusCode, body, jobId);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -185,21 +203,62 @@ public class IndexModel : PageModel
             return Page();
         }
 
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            var root = doc.RootElement;
-            var jobId = root.TryGetProperty("jobId", out var jobIdProp) ? jobIdProp.GetString() : null;
-            StatusMessage = string.IsNullOrWhiteSpace(jobId)
-                ? "Deploy infra runbook submitted successfully."
-                : $"Deploy infra runbook submitted successfully. Job ID: {jobId}";
-        }
-        catch
-        {
-            StatusMessage = "Deploy infra runbook submitted successfully.";
-        }
+        RunbookJobId = jobId;
+        StatusMessage = string.IsNullOrWhiteSpace(jobId)
+            ? "Deploy infra runbook submitted successfully."
+            : $"Deploy infra runbook submitted successfully. Job ID: {jobId}";
 
         return RedirectToPage();
+    }
+
+    public async Task<IActionResult> OnGetRunbookOutputAsync(string? jobId)
+    {
+        if (!(await _authorizationService.AuthorizeAsync(User, "CanWrite")).Succeeded)
+        {
+            return Forbid();
+        }
+
+        if (!Guid.TryParse(jobId, out _))
+        {
+            return BadRequest("A valid runbook job ID is required.");
+        }
+
+        var userName = User.FindFirst("preferred_username")?.Value ?? User.Identity?.Name;
+        if (string.IsNullOrWhiteSpace(userName)
+            || !await _db.UpgradeActionLogs.AsNoTracking().AnyAsync(x => x.jobId == jobId && x.userName == userName))
+        {
+            return NotFound();
+        }
+
+        var baseUrl = _configuration["FunctionApp:BaseUrl"]?.TrimEnd('/');
+        var token = await GetFunctionAppAccessTokenAsync();
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Runbook output is not configured.");
+        }
+
+        var client = _httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/runbook-jobs/{Uri.EscapeDataString(jobId)}/output");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("Failed to retrieve output for runbook job {JobId}. Status: {StatusCode}, Body: {Body}", jobId, response.StatusCode, body);
+            return StatusCode(StatusCodes.Status502BadGateway, "Unable to retrieve runbook output.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return new JsonResult(document.RootElement.Clone());
+        }
+        catch (JsonException)
+        {
+            _logger.LogError("Function App returned invalid JSON for runbook job {JobId} output.", jobId);
+            return StatusCode(StatusCodes.Status502BadGateway, "Unable to read runbook output.");
+        }
     }
 
     private async Task<string?> GetFunctionAppAccessTokenAsync()

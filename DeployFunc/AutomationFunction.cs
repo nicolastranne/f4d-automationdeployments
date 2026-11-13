@@ -717,6 +717,7 @@ namespace DeployFunc
             var isSetupNotification = GetStringProperty(data, "IsSetupNotification", "isSetupNotification") ?? "true";
             var isSetupFilemanager = GetStringProperty(data, "IsSetupFilemanager", "isSetupFilemanager") ?? "false";
             var regionPrefix = GetStringProperty(data, "RegionPrefix", "regionPrefix") ?? string.Empty;
+            var countryCode = GetStringProperty(data, "CountryCode", "countryCode") ?? string.Empty;
             var customerName = GetStringProperty(data, "CustomerName", "customerName") ?? string.Empty;
             var siteName = GetStringProperty(data, "SiteName", "siteName") ?? string.Empty;
             var port = GetStringProperty(data, "Port", "port") ?? string.Empty;
@@ -772,7 +773,8 @@ namespace DeployFunc
                 { "SiteCode", siteCode },
                 { "ResourceGroupName", resourceGroupName },
                 { "Subscription", subscription },
-                { "KeyVaultName", keyVaultName }
+                { "KeyVaultName", keyVaultName },
+                { "CountryCode", countryCode }
             };
 
             if (!string.IsNullOrWhiteSpace(meshSubnet))
@@ -846,6 +848,54 @@ namespace DeployFunc
             }
 
             return new OkObjectResult(System.Text.Json.JsonDocument.Parse(responseContent).RootElement);
+        }
+
+        [Function("GetRunbookJobOutput")]
+        public async Task<IActionResult> GetRunbookJobOutputAsync(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "runbook-jobs/{jobId}/output")] HttpRequest req, string jobId)
+        {
+            if (string.IsNullOrWhiteSpace(_subscriptionId)
+                || string.IsNullOrWhiteSpace(_automationResourceGroup)
+                || string.IsNullOrWhiteSpace(_automationAccount)
+                || !Guid.TryParse(jobId, out _))
+            {
+                return new BadRequestObjectResult("Missing automation configuration or invalid job ID.");
+            }
+
+            var credential = new DefaultAzureCredential();
+            var token = await credential.GetTokenAsync(
+                new TokenRequestContext(new[] { "https://management.azure.com/.default" }));
+
+            var jobUri = $"https://management.azure.com/subscriptions/{_subscriptionId}/resourceGroups/{_automationResourceGroup}/providers/Microsoft.Automation/automationAccounts/{_automationAccount}/jobs/{jobId}?api-version=2023-11-01";
+            var outputUri = $"https://management.azure.com/subscriptions/{_subscriptionId}/resourceGroups/{_automationResourceGroup}/providers/Microsoft.Automation/automationAccounts/{_automationAccount}/jobs/{jobId}/output?api-version=2023-11-01";
+
+            using var jobRequest = new HttpRequestMessage(HttpMethod.Get, jobUri);
+            jobRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+            using var jobResponse = await _httpClient.SendAsync(jobRequest);
+            var jobContent = await jobResponse.Content.ReadAsStringAsync();
+            if (!jobResponse.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to get runbook job {JobId}. Status: {StatusCode}, Body: {Body}", jobId, jobResponse.StatusCode, jobContent);
+                return new ObjectResult(jobContent) { StatusCode = (int)jobResponse.StatusCode };
+            }
+
+            using var outputRequest = new HttpRequestMessage(HttpMethod.Get, outputUri);
+            outputRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+            using var outputResponse = await _httpClient.SendAsync(outputRequest);
+            var outputContent = await outputResponse.Content.ReadAsStringAsync();
+            if (!outputResponse.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to get runbook output for job {JobId}. Status: {StatusCode}, Body: {Body}", jobId, outputResponse.StatusCode, outputContent);
+                return new ObjectResult(outputContent) { StatusCode = (int)outputResponse.StatusCode };
+            }
+
+            using var jobDocument = System.Text.Json.JsonDocument.Parse(jobContent);
+            var status = jobDocument.RootElement.TryGetProperty("properties", out var properties)
+                && properties.TryGetProperty("status", out var statusProperty)
+                ? statusProperty.GetString()
+                : null;
+
+            return new OkObjectResult(new { jobId, status, output = outputContent });
         }
 
         private static async Task<string> GetShareFileTextAsync(ShareFileClient file)

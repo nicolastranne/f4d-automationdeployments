@@ -28,6 +28,10 @@ namespace DeployFront.Pages.ServiceMap
         [Column("StatusCode")]
         public int? statusCode { get; set; }
 
+        [Column("JobId")]
+        [MaxLength(64)]
+        public string? jobId { get; set; }
+
         [Column("CreatedAt")]
         public DateTime createdAt { get; set; } = DateTime.UtcNow;
 
